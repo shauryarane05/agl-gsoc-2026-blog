@@ -81,6 +81,11 @@ conda activate ros2  &amp;&amp; python -u ~/carla-bridge/udp_to_ros2.py
 [agl] #312 /carla/odom  x=-2.65 y=133.69 z=0.00
 [agl] #629 /carla/odom  x=-3.60 y=133.68 z=0.00</span>   <span class="c"># ← x decreasing: the car is driving</span></code></pre>
 
+<figure class="shot">
+  <img src="aglimage.png" alt="The AGL QEMU serial console streaming a continuous list of /carla/odom messages received over rosbridge">
+  <figcaption>Captured live: the AGL VM's console after fetching the client over the slirp gateway (<code>10.0.2.2:8001</code>) and subscribing — a continuous stream of <code>/carla/odom</code> messages from CARLA arriving over rosbridge. The ROS2 topic data is now visible <em>inside AGL</em>.</figcaption>
+</figure>
+
 <div class="callout win">
   <p><strong>End-to-end, live.</strong> An AGL image — running as a VM, in QEMU, on a GPU-less, sudo-less server — subscribes to live odometry from a self-driving car in CARLA, over rosbridge, at 20&nbsp;Hz. Every link runs on one machine, and not one step needed root.</p>
 </div>
