@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Community Bonding — AGL × CARLA</title>
-<meta name="description" content="GSoC community bonding: architecture decisions and setting up CARLA + the AGL/ROS2 toolchain on a GPU-less, sudo-less server.">
+<meta name="description" content="GSoC community bonding: architecture decisions and setting up CARLA + the AGL/ROS2 toolchain on a GPU-less server.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -25,15 +25,15 @@
 <div class="wrap">
 
 <h2>1. Picking the architecture — and a key decision</h2>
-<p>The project moves data from CARLA to an AGL dashboard. The obvious path is ROS2's native transport, <strong>DDS</strong>. But the AGL display will run as a virtual machine, and that VM uses QEMU's <em>user-mode</em> networking (“slirp”) — because the alternative, a TAP bridge, needs root, which we don't have. DDS discovers peers over UDP multicast, and that doesn't survive slirp's NAT.</p>
+<p>The project moves data from CARLA to an AGL dashboard. The obvious path is ROS2's native transport, <strong>DDS</strong>. But the AGL display runs as a virtual machine using QEMU's <em>user-mode</em> networking (“slirp”), and DDS discovers peers over UDP multicast — which doesn't survive slirp's NAT.</p>
 <p>So the architecture commits early to <strong>rosbridge</strong>: a server that exposes the whole ROS2 graph as plain <strong>WebSocket + JSON</strong> on TCP port 9090. WebSocket is just TCP, and TCP passes straight through QEMU's networking. The AGL side never speaks ROS2/DDS at all — it's simply a WebSocket client.</p>
 <div class="callout">
-  <p><strong>The decision:</strong> AGL receives data over <strong>rosbridge (WebSocket/JSON), not DDS.</strong> This eliminates an entire class of networking problems and matches how AGL's Flutter HMI talks to robotics backends in practice (via the <code>roslibdart</code> client).</p>
+  <p><strong>The decision:</strong> AGL receives data over <strong>rosbridge (WebSocket/JSON), not DDS.</strong> This eliminates an entire class of networking problems and matches how an AGL HMI application talks to robotics backends in practice.</p>
 </div>
 <p>The full intended pipeline:</p>
 <div class="diagram">CARLA  →  carla_ros_bridge  →  PointCloud2
        →  lidar_detector (PCL perception)  →  3D detections
-       →  rosbridge_websocket :9090  →  AGL Flutter HMI (bird's-eye view)</div>
+       →  rosbridge_websocket :9090  →  AGL HMI app (bird's-eye view)</div>
 
 <h2>2. The CARLA→ROS2 bridge, and a Python version clash</h2>
 <p>A "bridge" is the translator that pulls state out of CARLA (over its RPC API) and publishes it onto ROS2 topics. CARLA ships an official, batteries-included one — <strong><code>carla_ros_bridge</code></strong> — that exposes every sensor and the vehicle state automatically. The problem is that it's a single program that must <code>import carla</code> <em>and</em> <code>import rclpy</code> in the same process — and those two cannot coexist here.</p>
@@ -46,7 +46,7 @@
 
 <h3>Our approach — split the bridge in two</h3>
 <p>If both libraries can't live in one process, we put them in two — each in the Python version it needs, talking over a local UDP socket carrying JSON. One process imports only <code>carla</code>; the other imports only <code>rclpy</code>; neither ever sees the other's library, so the clash simply never arises. The JSON-over-UDP seam is an "airlock" between the two Python worlds (full implementation in Week 2).</p>
-<p>With no sudo, the way to run two Python versions side by side is <strong>Miniforge</strong> — a conda installer living entirely in the home folder — giving a <code>carla</code> env (Python 3.7) and a <code>ros2</code> env (Python 3.11, with ROS2 from the conda-packaged RoboStack distribution).</p>
+<p>To run two Python versions side by side cleanly, we use <strong>Miniforge</strong> — a conda installer living entirely in the home folder — giving a <code>carla</code> env (Python 3.7) and a <code>ros2</code> env (Python 3.11, with ROS2 from the conda-packaged RoboStack distribution).</p>
 
 <h3>The correct long-term fix</h3>
 <p>The two-process bridge is a deliberate, constraint-driven shortcut — ideal for streaming one small topic, but a poor fit for large binary data like a LiDAR point cloud. The proper end state is to <em>eliminate</em> the clash so the official single-process bridge runs:</p>
@@ -73,7 +73,7 @@ pip install ~/carla-sim/PythonAPI/carla/dist/carla-0.9.15-cp37-cp37m-*.whl</code
 ./CarlaUE4.sh -RenderOffScreen -nosound -carla-rpc-port=2000</code></pre>
 
 <h2>4. The ROS2 environment</h2>
-<p>The second conda environment provides ROS2 Humble — again with no root, via <strong>RoboStack</strong> (ROS2 packaged for conda-forge):</p>
+<p>The second conda environment provides ROS2 Humble via <strong>RoboStack</strong> (ROS2 packaged for conda-forge):</p>
 <pre><code>conda create -y -n ros2 python=3.11 && conda activate ros2
 conda config --env --add channels robostack-staging
 conda config --env --add channels conda-forge

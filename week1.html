@@ -64,8 +64,8 @@ python3-json   3.12.12
 busybox        1.36.1     # provides wget
 openssh        9.6p1</span></code></pre>
 
-<h2>3. Standing up rosbridge (no sudo)</h2>
-<p>rosbridge installs into the <code>ros2</code> conda environment — a conda install, so no root needed:</p>
+<h2>3. Standing up rosbridge</h2>
+<p>rosbridge installs into the <code>ros2</code> conda environment:</p>
 <pre><code>conda activate ros2
 mamba install -y -c robostack-staging -c conda-forge ros-humble-rosbridge-suite
 ros2 launch rosbridge_server rosbridge_websocket_launch.xml   <span class="c"># binds 0.0.0.0:9090</span></code></pre>
@@ -89,10 +89,10 @@ ws_send_text(s, json.dumps({<span class="s">"op"</span>: <span class="s">"subscr
 </div>
 
 <h2>5. Proving the rosbridge link with fake data</h2>
-<p>Rather than bring up the heavy CARLA simulator immediately, I isolated the <em>new</em> risk — can an AGL VM reach the host's rosbridge? — by feeding rosbridge a fake topic and connecting from the VM. First, boot AGL with QEMU's no-root networking:</p>
+<p>Rather than bring up the heavy CARLA simulator immediately, I isolated the <em>new</em> risk — can an AGL VM reach the host's rosbridge? — by feeding rosbridge a fake topic and connecting from the VM. First, boot AGL with QEMU's user-mode networking:</p>
 <pre><code>runqemu qemux86-64 slirp nographic     <span class="c"># login: root (no password)</span></code></pre>
 <div class="callout win">
-  <p><strong>The key fact that makes this work:</strong> in QEMU's slirp networking, the host is <em>always</em> reachable from inside the guest at the address <code>10.0.2.2</code> — no port-forwarding, no root. So the host's rosbridge on <code>:9090</code> is reachable from the VM at <code>ws://10.0.2.2:9090</code>.</p>
+  <p><strong>The key fact that makes this work:</strong> in QEMU's slirp networking, the host is <em>always</em> reachable from inside the guest at the address <code>10.0.2.2</code> — no port-forwarding, no setup. So the host's rosbridge on <code>:9090</code> is reachable from the VM at <code>ws://10.0.2.2:9090</code>.</p>
 </div>
 <p>Get the client into the VM by serving it over HTTP from the host and fetching it — which also proves VM→host networking works:</p>
 <pre><code><span class="c"># host: a fake /carla/odom at 5 Hz, plus a file server</span>

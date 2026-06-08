@@ -87,7 +87,7 @@ conda activate ros2  &amp;&amp; python -u ~/carla-bridge/udp_to_ros2.py
 </figure>
 
 <div class="callout win">
-  <p><strong>End-to-end, live.</strong> An AGL image — running as a VM, in QEMU, on a GPU-less, sudo-less server — subscribes to live odometry from a self-driving car in CARLA, over rosbridge, at 20&nbsp;Hz. Every link runs on one machine, and not one step needed root.</p>
+  <p><strong>End-to-end, live.</strong> An AGL image — running as a VM, in QEMU on a GPU-less server — subscribes to live odometry from a self-driving car in CARLA, over rosbridge, at 20&nbsp;Hz. Every link in the pipeline runs on one machine.</p>
 </div>
 
 <h3>The pieces, and where each runs</h3>
@@ -103,7 +103,7 @@ conda activate ros2  &amp;&amp; python -u ~/carla-bridge/udp_to_ros2.py
 <h2 id="next">5. What's next</h2>
 <p>Week 2 proves the <em>transport</em> — the foundation the visualization sits on. Two things build on top of it:</p>
 <ul class="clean">
-  <li><strong>The Flutter HMI.</strong> Replace the standard-library test client with the real AGL bird's-eye-view app (Flutter + <code>roslibdart</code>). That means rebuilding the image with the <code>agl-flutter</code> feature plus the HMI application.</li>
+  <li><strong>Build the HMI application.</strong> Replace the standard-library test client with the real AGL bird's-eye-view application — a dashboard app that connects to rosbridge and renders the detections on screen.</li>
   <li><strong>The LiDAR perception pipeline.</strong> The heart of the project — CARLA LiDAR → a PCL perception node → 3D object detections. CARLA's LiDAR is ray-cast on the GPU, so that stage moves to a machine with a real graphics card; the rosbridge transport built here stays identical regardless of what's publishing.</li>
 </ul>
 
