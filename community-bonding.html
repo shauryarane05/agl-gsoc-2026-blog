@@ -25,15 +25,16 @@
 <div class="wrap">
 
 <h2>1. Picking the architecture — and a key decision</h2>
-<p>The project moves data from CARLA to an AGL dashboard. The obvious path is ROS2's native transport, <strong>DDS</strong>. But the AGL display runs as a virtual machine using QEMU's <em>user-mode</em> networking (“slirp”), and DDS discovers peers over UDP multicast — which doesn't survive slirp's NAT.</p>
-<p>So the architecture commits early to <strong>rosbridge</strong>: a server that exposes the whole ROS2 graph as plain <strong>WebSocket + JSON</strong> on TCP port 9090. WebSocket is just TCP, and TCP passes straight through QEMU's networking. The AGL side never speaks ROS2/DDS at all — it's simply a WebSocket client.</p>
+<p>The project moves data from CARLA to an AGL dashboard. Within the robotics stack, the nodes talk to each other over ROS2's native transport, <strong>DDS</strong> — that's normal and stays. The real architectural question is the <em>last hop</em>: how the data leaves the ROS world and reaches the AGL HMI.</p>
+<p>The AGL HMI is a UI application, not a ROS node — it shouldn't carry a full DDS stack, message definitions, and a colcon build just to draw a screen. So the standard pattern is for it to consume ROS data over <strong>rosbridge</strong>: a server that exposes the ROS2 graph as plain <strong>WebSocket + JSON</strong> on TCP port 9090. The HMI is then simply a WebSocket client, fully decoupled from ROS internals. This is the design the project targets regardless of where it runs.</p>
 <div class="callout">
-  <p><strong>The decision:</strong> AGL receives data over <strong>rosbridge (WebSocket/JSON), not DDS.</strong> This eliminates an entire class of networking problems and matches how an AGL HMI application talks to robotics backends in practice.</p>
+  <p><strong>The decision:</strong> DDS <em>inside</em> the robotics stack; <strong>rosbridge (WebSocket/JSON) at the HMI boundary.</strong> This is the correct, intended pattern — and it <em>also</em> happens to make the emulated setup work for free: the AGL VM uses QEMU's <em>user-mode</em> (“slirp”) networking, which DDS multicast discovery can't cross, but rosbridge's plain TCP passes straight through. The right architecture and the practical one are the same.</p>
 </div>
-<p>The full intended pipeline:</p>
-<div class="diagram">CARLA  →  carla_ros_bridge  →  PointCloud2
-       →  lidar_detector (PCL perception)  →  3D detections
-       →  rosbridge_websocket :9090  →  AGL HMI app (bird's-eye view)</div>
+<p>The full intended pipeline — note DDS carries the data between the ROS2 nodes, and rosbridge appears only at the final hop to the HMI:</p>
+<div class="diagram">CARLA  →  carla_ros_bridge  →  PointCloud2          ┐
+       →  lidar_detector (PCL perception)  →  3D detections  │  DDS (inside ROS2)
+       →  rosbridge_websocket :9090                          ┘
+                            →  AGL HMI app (bird's-eye view)    WebSocket/JSON</div>
 
 <h2>2. The CARLA→ROS2 bridge, and a Python version clash</h2>
 <p>A "bridge" is the translator that pulls state out of CARLA (over its RPC API) and publishes it onto ROS2 topics. CARLA ships an official, batteries-included one — <strong><code>carla_ros_bridge</code></strong> — that exposes every sensor and the vehicle state automatically. The problem is that it's a single program that must <code>import carla</code> <em>and</em> <code>import rclpy</code> in the same process — and those two cannot coexist here.</p>
