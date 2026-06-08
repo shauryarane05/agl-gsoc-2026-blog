@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROS-Embedded LiDAR Perception in CARLA with AGL Visualization</title>
+<meta name="description" content="GSoC 2025 project: streaming perception from the CARLA simulator into an Automotive Grade Linux dashboard over ROS2 and rosbridge.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2025</span></div>
+  <a class="navlink active" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Google Summer of Code 2025 · Automotive Grade Linux</div>
+  <h1>ROS-Embedded LiDAR Perception in CARLA with AGL Visualization</h1>
+  <p class="sub">Bringing live perception from a self-driving car simulator onto the operating system that runs in real car dashboards — over ROS2 and rosbridge, on a GPU-less server, with no root access.</p>
+  <div class="meta">Contributor: Shaurya Rane · Mentors: Jan-Simon Möller, Rob Woolley</div>
+</div></header>
+
+<div class="wrap">
+
+<h2>What this project is</h2>
+<p>Modern cars are full of sensors. One of the most important is <strong>LiDAR</strong> — a spinning laser that measures the distance to everything around the vehicle, producing a 3D point cloud of the world. Software then turns that cloud into something useful: “there's a car 12 metres ahead, a pedestrian to the left.” Finally, the dashboard draws it on a screen so the driver (or the system) can see what the car sees.</p>
+<p>This project builds that whole journey — but in simulation, so it can be developed and tested without a physical car:</p>
+
+<div class="diagram">CARLA simulator        →  a virtual car with a virtual LiDAR sensor
+   │
+   ▼  point cloud
+perception (ROS2 / PCL) →  detects cars, pedestrians, cyclists
+   │
+   ▼  3D detections
+rosbridge (WebSocket)   →  carries the data out as JSON
+   │
+   ▼
+AGL dashboard (Flutter) →  draws a bird's-eye view of the surroundings</div>
+
+<p>Each box is a real, separate technology, and getting them to talk to each other — cleanly, reproducibly, and under real-world constraints — is the heart of the work.</p>
+
+<h2>The building blocks</h2>
+<ul class="clean">
+  <li><strong>CARLA</strong> — an open-source autonomous-driving simulator built on Unreal Engine. It provides the virtual world, the car, and the sensors.</li>
+  <li><strong>ROS2</strong> — the robotics middleware that moves sensor data and detections between programs as “topics.”</li>
+  <li><strong>AGL (Automotive Grade Linux)</strong> — the Linux distribution that actually runs in production car infotainment and instrument clusters. This is the target display platform.</li>
+  <li><strong>rosbridge</strong> — a server that re-publishes ROS2 topics as plain WebSocket + JSON, so a non-ROS client (like a car dashboard app) can read them.</li>
+  <li><strong>Flutter</strong> — the UI toolkit AGL uses for its human-machine interface (HMI), connecting to rosbridge via the <code>roslibdart</code> library.</li>
+</ul>
+
+<h2>The constraints that shaped everything</h2>
+<p>The development environment is a remote server with three hard rules that turned routine steps into engineering problems:</p>
+<table>
+  <tr><th>Constraint</th><th>Why it's hard</th></tr>
+  <tr><td><strong>No GPU</strong></td><td>CARLA is built on a game engine that normally expects a graphics card.</td></tr>
+  <tr><td><strong>No sudo / root</strong></td><td>Nothing can be installed system-wide; no privileged networking.</td></tr>
+  <tr><td><strong>Must survive disconnects</strong></td><td>Builds and demos run for hours, so they live in <code>tmux</code> sessions on the server.</td></tr>
+</table>
+<p>A recurring theme across this log is how those three rules forced specific design choices — conda environments instead of system packages, <strong>rosbridge instead of ROS2's native networking</strong>, and clever use of the simulator's no-render mode.</p>
+
+<h2>The ideal setup vs. what we built</h2>
+<p>It's worth being honest about the gap between the textbook deployment and the one these constraints forced. The <strong>ideal</strong> is three machines, each doing the job it's suited for, on a real network:</p>
+<div class="diagram">┌──────────────────────┐     real LAN      ┌──────────────────────┐
+│  WORKSTATION (GPU)   │ ───────────────►  │  TARGET HARDWARE     │
+│  CARLA + LiDAR       │  ROS2 / rosbridge │  AGL on real silicon │
+│  official ros-bridge │  over Ethernet    │  Flutter HMI         │
+└──────────────────────┘                   └──────────────────────┘</div>
+<p>We couldn't reach that: the target single-board computer wouldn't boot (a hardware fault), and the only machine large enough to run CARLA was the GPU-less, sudo-less server. So everything collapsed onto <strong>one box</strong>, with AGL emulated in QEMU and a lightweight custom bridge. The table shows what's faithful to the goal and what is still a stand-in:</p>
+<table>
+  <tr><th>Dimension</th><th>Ideal</th><th>What we built</th></tr>
+  <tr><td>Machines</td><td>workstation + target + GPU box</td><td>one server</td></tr>
+  <tr><td>AGL runs on</td><td>real automotive hardware</td><td>QEMU emulation (qemux86-64)</td></tr>
+  <tr><td>Sensor data</td><td>LiDAR point cloud → detections</td><td>vehicle odometry (pose/velocity)</td></tr>
+  <tr><td>Network</td><td>real LAN</td><td>QEMU slirp NAT via the host gateway</td></tr>
+  <tr><td>CARLA→ROS2 bridge</td><td>official <code>carla_ros_bridge</code></td><td>custom two-process bridge</td></tr>
+  <tr><td>AGL client</td><td>Flutter HMI (bird's-eye view)</td><td>standard-library WebSocket client</td></tr>
+</table>
+<div class="callout win">
+  <p><strong>What's genuinely proven:</strong> the <em>transport leg</em> — rosbridge → AGL — is identical to the ideal. An isolated AGL VM really does subscribe to a live, CARLA-derived ROS2 topic. The remaining pieces (LiDAR, the Flutter HMI, real hardware) all plug into that same proven pipe without changing its shape — they swap the <em>cargo</em>, not the <em>channel</em>.</p>
+</div>
+
+<h2>Progress log</h2>
+<p>This site documents the work in order. Start at Community Bonding and follow through the weeks.</p>
+<div class="cards">
+  <a class="card" href="community-bonding.html">
+    <div class="ph">Community Bonding</div>
+    <h3>Understanding &amp; setting up</h3>
+    <p>Locking the architecture (and why rosbridge, not DDS), the two-Python-version puzzle, and standing up CARLA + the AGL/ROS2 toolchain on a GPU-less, sudo-less server.</p>
+  </a>
+  <a class="card" href="week1.html">
+    <div class="ph">Week 1</div>
+    <h3>Building AGL &amp; proving the link</h3>
+    <p>Compiling the AGL+ROS2 image (and the recipe bug that blocked it), standing up rosbridge, a pure-stdlib WebSocket client, and proving an AGL VM can subscribe over QEMU networking.</p>
+  </a>
+  <a class="card" href="week2.html">
+    <div class="ph">Week 2</div>
+    <h3>Live CARLA → AGL</h3>
+    <p>Wiring the real simulator into the pipeline, fixing three runtime bugs, and watching the AGL dashboard track a self-driving car live at 20&nbsp;Hz.</p>
+  </a>
+  <a class="card" href="week2.html#next">
+    <div class="ph">Up next</div>
+    <h3>The Flutter HMI &amp; LiDAR</h3>
+    <p>Replacing the test client with the real bird's-eye-view app, and the GPU-bound LiDAR perception pipeline.</p>
+  </a>
+</div>
+
+<div class="footer">
+  <p>GSoC 2025 · Automotive Grade Linux · “ROS-Embedded LiDAR Perception in CARLA with AGL Visualization”</p>
+</div>
+</div>
+</body>
+</html>

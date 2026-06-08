@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 2 — Live CARLA → AGL</title>
+<meta name="description" content="Week 2: wiring the real CARLA simulator into the pipeline, fixing three runtime bugs, and an AGL dashboard tracking a self-driving car live at 20 Hz.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2025</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink active" href="week2.html">Week 2</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 2 · Coding Period</div>
+  <h1>Wiring in the real simulator — live CARLA on the AGL dashboard</h1>
+  <p class="sub">Week 1 proved the plumbing with fake data. Week 2 replaces the fake publisher with the real CARLA car — and works through the three runtime bugs that stood in the way.</p>
+</div></header>
+
+<div class="wrap">
+
+<h2>1. The bridge — two processes, by necessity</h2>
+<p>Because CARLA's Python (3.7) and ROS2's Python (3.11) can't share a process, the bridge is split in two, communicating over a local UDP socket:</p>
+<div class="diagram">CARLA (:2000)
+   │  carla_to_udp.py     ← conda "carla" env, Python 3.7: reads ego pose
+   ▼  UDP :9870
+udp_to_ros2.py            ← conda "ros2" env, Python 3.11: publishes ROS2
+   ▼  /carla/odom  @ ~20 Hz</div>
+<p>Start CARLA headless — the same no-GPU launch from community bonding:</p>
+<pre><code>cd ~/carla-sim &amp;&amp; ./CarlaUE4.sh -RenderOffScreen -nosound -carla-rpc-port=2000</code></pre>
+
+<h2>2. Three bugs between here and live data</h2>
+
+<span class="label bug">Bug 1 — connecting before CARLA is ready</span>
+<p>Starting the bridge the instant port 2000 appeared gave:</p>
+<pre><code><span class="r">RuntimeError: time-out of 20000ms while waiting for the simulator</span></code></pre>
+<p>CARLA opens its port <em>before</em> it can actually answer API calls. <span class="label fix" style="margin:4px 0">Fix</span> wait until the port is up, then ~30 s more:</p>
+<pre><code>until ss -ltn | grep -q <span class="s">":2000"</span>; do sleep 2; done; sleep 25</code></pre>
+
+<span class="label bug">Bug 2 — a hidden port collision</span>
+<p>The ego car spawned, but enabling autopilot crashed:</p>
+<pre><code><span class="r">RuntimeError: trying to create rpc server for traffic manager;
+but the system failed to create because of bind error.</span></code></pre>
+<p>CARLA's Traffic Manager (which drives autopilot vehicles) opens its own server on <strong>port 8000</strong> — the exact port I'd used for the HTTP file server in Week 1. Two servers, one port. <span class="label fix" style="margin:4px 0">Fix</span> free port 8000 (use a different port for file transfer, e.g. 8001):</p>
+<pre><code>pkill -f <span class="s">"http.server 8000"</span></code></pre>
+
+<span class="label bug">Bug 3 — ghosts at the spawn point</span>
+<p>Each crashed attempt above had spawned a car before dying, and never cleaned it up. After a few tries:</p>
+<pre><code><span class="r">RuntimeError: Spawn failed because of collision at spawn position</span></code></pre>
+<p><span class="label fix" style="margin:4px 0">Fix</span> harden the spawn logic — destroy existing vehicles first, then try spawn points until one is free (<code>try_spawn_actor</code> returns <code>None</code> on collision instead of raising):</p>
+<pre><code><span class="k">for</span> a <span class="k">in</span> world.get_actors().filter(<span class="s">'vehicle.*'</span>):
+    <span class="k">try</span>: a.destroy()
+    <span class="k">except</span> Exception: <span class="k">pass</span>
+spawns = world.get_map().get_spawn_points(); random.shuffle(spawns)
+ego = <span class="k">None</span>
+<span class="k">for</span> sp <span class="k">in</span> spawns:
+    ego = world.try_spawn_actor(bp, sp)
+    <span class="k">if</span> ego: <span class="k">break</span>
+ego.set_autopilot(<span class="k">True</span>)</code></pre>
+
+<h2>3. Real data on the wire</h2>
+<p>With all three fixed, both halves of the bridge come up:</p>
+<pre><code>conda activate carla &amp;&amp; python -u ~/carla-bridge/carla_to_udp.py
+<span class="g">spawned ego: vehicle.tesla.model3 id 25</span>
+
+conda activate ros2  &amp;&amp; python -u ~/carla-bridge/udp_to_ros2.py
+<span class="g">[carla_odom_bridge]: publishing /carla/odom</span></code></pre>
+<p>Confirm the topic carries real coordinates, at the right rate:</p>
+<pre><code>ros2 topic hz /carla/odom
+<span class="g">average rate: 19.86</span>   <span class="c"># ~20 Hz — matches the project's sensor spec</span></code></pre>
+
+<h2>4. The result — AGL tracking a self-driving car</h2>
+<p>Same client, same AGL VM, real data. The dashboard now prints the position of an autonomous car driving itself around the CARLA map — and the numbers <strong>change as it moves</strong>:</p>
+<pre><code>root@qemux86-64:~# python3 -u /tmp/agl_ws_test.py 10.0.2.2 9090 /carla/odom
+<span class="g">[agl] #150 /carla/odom  x=2.57  y=133.72 z=0.00
+[agl] #312 /carla/odom  x=-2.65 y=133.69 z=0.00
+[agl] #629 /carla/odom  x=-3.60 y=133.68 z=0.00</span>   <span class="c"># ← x decreasing: the car is driving</span></code></pre>
+
+<div class="callout win">
+  <p><strong>End-to-end, live.</strong> An AGL image — running as a VM, in QEMU, on a GPU-less, sudo-less server — subscribes to live odometry from a self-driving car in CARLA, over rosbridge, at 20&nbsp;Hz. Every link runs on one machine, and not one step needed root.</p>
+</div>
+
+<h3>The pieces, and where each runs</h3>
+<table>
+  <tr><th>Component</th><th>Environment</th><th>Role</th></tr>
+  <tr><td>CARLA server</td><td>native (tmux)</td><td>Simulates the car — no GPU, software render</td></tr>
+  <tr><td><code>carla_to_udp.py</code></td><td>conda <code>carla</code> (Py 3.7)</td><td>Reads ego pose → UDP</td></tr>
+  <tr><td><code>udp_to_ros2.py</code></td><td>conda <code>ros2</code> (Py 3.11)</td><td>UDP → ROS2 <code>/carla/odom</code></td></tr>
+  <tr><td><code>rosbridge_websocket</code></td><td>conda <code>ros2</code></td><td>ROS2 → WebSocket JSON on <code>:9090</code></td></tr>
+  <tr><td>AGL + client</td><td>QEMU VM (tmux)</td><td>WebSocket client reads <code>/carla/odom</code></td></tr>
+</table>
+
+<h2 id="next">5. What's next</h2>
+<p>Week 2 proves the <em>transport</em> — the foundation the visualization sits on. Two things build on top of it:</p>
+<ul class="clean">
+  <li><strong>The Flutter HMI.</strong> Replace the standard-library test client with the real AGL bird's-eye-view app (Flutter + <code>roslibdart</code>). That means rebuilding the image with the <code>agl-flutter</code> feature plus the HMI application.</li>
+  <li><strong>The LiDAR perception pipeline.</strong> The heart of the project — CARLA LiDAR → a PCL perception node → 3D object detections. CARLA's LiDAR is ray-cast on the GPU, so that stage moves to a machine with a real graphics card; the rosbridge transport built here stays identical regardless of what's publishing.</li>
+</ul>
+
+<div class="pager">
+  <a href="week1.html">← Week 1</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home →</a>
+</div>
+
+<div class="footer"><p>GSoC 2025 · Automotive Grade Linux · Week 2</p></div>
+</div>
+</body>
+</html>

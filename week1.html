@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 1 — Building AGL &amp; proving the link</title>
+<meta name="description" content="Week 1: compiling the AGL+ROS2 image, the babeltrace recipe bug, standing up rosbridge, a pure-stdlib client, and proving an AGL VM can subscribe.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2025</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink active" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 1 · Coding Period</div>
+  <h1>Building the AGL image, and proving an AGL VM can subscribe</h1>
+  <p class="sub">The goal for the week: compile a working AGL+ROS2 image, stand up rosbridge, and prove — with fake data first — that an AGL virtual machine can receive ROS2 topics over QEMU's networking.</p>
+</div></header>
+
+<div class="wrap">
+
+<h2>1. Building AGL + ROS2 — and a recipe bug</h2>
+<p>With the tree configured, the build is one command (run inside <code>tmux</code> so it survives disconnects):</p>
+<pre><code>cd ~/AGL/master/build-qemu-ros
+source ../external/poky/oe-init-build-env .
+bitbake agl-image-minimal</code></pre>
+<p>Roughly 7,500 tasks in, it died:</p>
+<span class="label bug">The bug</span>
+<pre><code><span class="r">ERROR: babeltrace-1.5.11-r0 do_compile: oe_runmake failed</span>
+| make: *** No targets specified and no makefile found.  Stop.</code></pre>
+<p>“No makefile found” means the <em>configure</em> step that generates the Makefile produced nothing. The configure log confirmed it, which is bizarre for an autotools project that clearly has a <code>configure.ac</code>:</p>
+<pre><code><span class="p">NOTE: nothing to configure</span></code></pre>
+<p>To find out why, I asked BitBake to print the variables it computed for this recipe:</p>
+<pre><code>bitbake -e babeltrace | grep -E <span class="s">"^(S|CONFIGURE_SCRIPT)="</span>
+<span class="g">S=".../babeltrace/1.5.11/babeltrace-1.5.11"</span>   <span class="c"># ← wrong folder</span></code></pre>
+<p>And on disk:</p>
+<pre><code>ls .../1.5.11/babeltrace-1.5.11/configure.ac   <span class="r"># No such file or directory</span>
+ls .../1.5.11/git/configure.ac                <span class="g"># exists ✓</span></code></pre>
+<p>There it is. The recipe fetches source with <code>git://</code>, which BitBake unpacks into a folder called <code>git/</code> — but the recipe never told BitBake that, so the source variable <code>S</code> kept its default (an empty <code>babeltrace-1.5.11/</code>). BitBake looked there, found no <code>configure.ac</code>, shrugged (“nothing to configure”), and left no Makefile.</p>
+
+<span class="label fix">The fix — one line</span>
+<pre><code>echo <span class="s">'S = "${WORKDIR}/git"'</span> >> \
+  ~/AGL/master/external/meta-ros/meta-ros2/recipes-kernel/lttng/babeltrace_1.5.11.bb
+
+<span class="c"># clean the broken state and confirm just this recipe builds</span>
+bitbake -c cleansstate babeltrace && bitbake babeltrace
+<span class="g"># → all tasks succeeded</span></code></pre>
+<p>Then the full image build ran to completion:</p>
+<pre><code><span class="g">NOTE: Tasks Summary: Attempted 11050 tasks of which 7510 didn't need to be rerun and all succeeded.</span></code></pre>
+<div class="callout">
+  <p><strong>This is a genuine upstream defect</strong> — a git recipe missing its <code>S</code> override. It's a one-line fix that's a strong candidate for a pull request to <code>meta-ros</code>. (A handful of other small layer issues surfaced during configuration too — a missing layer dependency and a packagegroup syntax slip — each fixable upstream.)</p>
+</div>
+
+<h2>2. Checking the image is fit for purpose</h2>
+<p>Before relying on it, I verified the image contained what the test client would need. Yocto splits Python into dozens of sub-packages, so I specifically checked for <code>python3-json</code> — not just <code>python3-core</code>:</p>
+<pre><code>grep -E <span class="s">"^(python3-core|python3-json|busybox|openssh) "</span> ...rootfs.manifest
+<span class="g">python3-core   3.12.12
+python3-json   3.12.12
+busybox        1.36.1     # provides wget
+openssh        9.6p1</span></code></pre>
+
+<h2>3. Standing up rosbridge (no sudo)</h2>
+<p>rosbridge installs into the <code>ros2</code> conda environment — a conda install, so no root needed:</p>
+<pre><code>conda activate ros2
+mamba install -y -c robostack-staging -c conda-forge ros-humble-rosbridge-suite
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml   <span class="c"># binds 0.0.0.0:9090</span></code></pre>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Two quirks</span> &nbsp;rosbridge takes <strong>~10 seconds</strong> to actually bind the port on first launch — connect too early and you get “connection refused.” And it <strong>ignores <code>SIGTERM</code></strong>; to stop it you need <code>kill -9</code>.</p>
+</div>
+
+<h2>4. A WebSocket client in pure standard-library Python</h2>
+<p>The minimal AGL image has <code>python3</code> but no WebSocket library and no easy way to install one into the running VM. So the client had to use <strong>only the standard library</strong> — implementing the WebSocket handshake and the rosbridge subscribe protocol by hand. The protocol itself is simple: after the handshake, subscribing is a single line of JSON.</p>
+<pre><code><span class="c"># subscribe is one JSON message over the socket</span>
+ws_send_text(s, json.dumps({<span class="s">"op"</span>: <span class="s">"subscribe"</span>, <span class="s">"topic"</span>: <span class="s">"/carla/odom"</span>}))
+
+<span class="c"># then read frames; each "publish" carries the ROS message as JSON</span>
+<span class="k">while</span> True:
+    d = json.loads(ws_recv_text(s))
+    <span class="k">if</span> d.get(<span class="s">"op"</span>) == <span class="s">"publish"</span>:
+        pos = d[<span class="s">"msg"</span>][<span class="s">"pose"</span>][<span class="s">"pose"</span>][<span class="s">"position"</span>]
+        print(<span class="s">f"x={pos['x']:.2f} y={pos['y']:.2f} z={pos['z']:.2f}"</span>)</code></pre>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Two traps learned the hard way</span> &nbsp;(1) Client-to-server WebSocket frames <strong>must be masked</strong> (XOR'd with a random key) or the server rejects them. (2) When Python's stdout goes through a pipe rather than a terminal it block-buffers, so a killed process loses its output — run with <code>python3 -u</code> when piping.</p>
+</div>
+
+<h2>5. Proving the rosbridge link with fake data</h2>
+<p>Rather than bring up the heavy CARLA simulator immediately, I isolated the <em>new</em> risk — can an AGL VM reach the host's rosbridge? — by feeding rosbridge a fake topic and connecting from the VM. First, boot AGL with QEMU's no-root networking:</p>
+<pre><code>runqemu qemux86-64 slirp nographic     <span class="c"># login: root (no password)</span></code></pre>
+<div class="callout win">
+  <p><strong>The key fact that makes this work:</strong> in QEMU's slirp networking, the host is <em>always</em> reachable from inside the guest at the address <code>10.0.2.2</code> — no port-forwarding, no root. So the host's rosbridge on <code>:9090</code> is reachable from the VM at <code>ws://10.0.2.2:9090</code>.</p>
+</div>
+<p>Get the client into the VM by serving it over HTTP from the host and fetching it — which also proves VM→host networking works:</p>
+<pre><code><span class="c"># host: a fake /carla/odom at 5 Hz, plus a file server</span>
+ros2 topic pub -r 5 /carla/odom nav_msgs/msg/Odometry <span class="s">"{pose: {pose: {position: {x: 7.5, y: 8.25, z: 1.0}}}}"</span>
+python -m http.server 8000
+
+<span class="c"># inside AGL</span>
+wget -O /tmp/agl_ws_test.py http://10.0.2.2:8000/agl_ws_test.py
+python3 -u /tmp/agl_ws_test.py 10.0.2.2 9090 /carla/odom</code></pre>
+<pre><code><span class="g">[agl] websocket handshake OK, subscribing...
+[agl] #1 /carla/odom  x=7.50 y=8.25 z=1.00
+[agl] #2 /carla/odom  x=7.50 y=8.25 z=1.00
+...</span></code></pre>
+
+<div class="callout win">
+  <p><span class="tag">Week 1 result</span> &nbsp;A from-scratch AGL image builds and boots, rosbridge is running, and an <strong>AGL virtual machine successfully subscribes to a ROS2 topic over WebSocket</strong>. The only remaining unknown is the data source — which becomes Week 2's job: swap the fake publisher for the real CARLA simulator.</p>
+</div>
+
+<div class="pager">
+  <a href="community-bonding.html">← Community Bonding</a>
+  <div class="spacer"></div>
+  <a href="week2.html">Week 2: Live CARLA → AGL →</a>
+</div>
+
+<div class="footer"><p>GSoC 2025 · Automotive Grade Linux · Week 1</p></div>
+</div>
+</body>
+</html>

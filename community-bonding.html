@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Community Bonding — AGL × CARLA</title>
+<meta name="description" content="GSoC community bonding: architecture decisions and setting up CARLA + the AGL/ROS2 toolchain on a GPU-less, sudo-less server.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2025</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink active" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Phase 0 · Community Bonding</div>
+  <h1>Understanding the project, and setting up the workshop</h1>
+  <p class="sub">Before writing pipeline code, two things had to be right: the <em>architecture</em> (how the pieces will talk), and the <em>environment</em> (getting heavyweight tools running under tight constraints).</p>
+</div></header>
+
+<div class="wrap">
+
+<h2>1. Picking the architecture — and a key decision</h2>
+<p>The project moves data from CARLA to an AGL dashboard. The obvious path is ROS2's native transport, <strong>DDS</strong>. But the AGL display will run as a virtual machine, and that VM uses QEMU's <em>user-mode</em> networking (“slirp”) — because the alternative, a TAP bridge, needs root, which we don't have. DDS discovers peers over UDP multicast, and that doesn't survive slirp's NAT.</p>
+<p>So the architecture commits early to <strong>rosbridge</strong>: a server that exposes the whole ROS2 graph as plain <strong>WebSocket + JSON</strong> on TCP port 9090. WebSocket is just TCP, and TCP passes straight through QEMU's networking. The AGL side never speaks ROS2/DDS at all — it's simply a WebSocket client.</p>
+<div class="callout">
+  <p><strong>The decision:</strong> AGL receives data over <strong>rosbridge (WebSocket/JSON), not DDS.</strong> This eliminates an entire class of networking problems and matches how AGL's Flutter HMI talks to robotics backends in practice (via the <code>roslibdart</code> client).</p>
+</div>
+<p>The full intended pipeline:</p>
+<div class="diagram">CARLA  →  carla_ros_bridge  →  PointCloud2
+       →  lidar_detector (PCL perception)  →  3D detections
+       →  rosbridge_websocket :9090  →  AGL Flutter HMI (bird's-eye view)</div>
+
+<h2>2. The CARLA→ROS2 bridge, and a Python version clash</h2>
+<p>A "bridge" is the translator that pulls state out of CARLA (over its RPC API) and publishes it onto ROS2 topics. CARLA ships an official, batteries-included one — <strong><code>carla_ros_bridge</code></strong> — that exposes every sensor and the vehicle state automatically. The problem is that it's a single program that must <code>import carla</code> <em>and</em> <code>import rclpy</code> in the same process — and those two cannot coexist here.</p>
+<p>The reason is an ABI lock, not a preference: <strong>CARLA 0.9.15's Python bindings are a binary compiled against CPython 3.7</strong> (a <code>cp37</code> artifact that physically won't load on newer interpreters), while <strong>ROS2 Humble's <code>rclpy</code> needs Python 3.10+</strong>. There is no single interpreter where both imports succeed:</p>
+<table>
+  <tr><th>Run the bridge on…</th><th><code>import carla</code></th><th><code>import rclpy</code></th></tr>
+  <tr><td>Python 3.7</td><td>✓</td><td>✗ (Humble won't run)</td></tr>
+  <tr><td>Python 3.11</td><td>✗ (no 3.7 binary loads)</td><td>✓</td></tr>
+</table>
+
+<h3>Our approach — split the bridge in two</h3>
+<p>If both libraries can't live in one process, we put them in two — each in the Python version it needs, talking over a local UDP socket carrying JSON. One process imports only <code>carla</code>; the other imports only <code>rclpy</code>; neither ever sees the other's library, so the clash simply never arises. The JSON-over-UDP seam is an "airlock" between the two Python worlds (full implementation in Week 2).</p>
+<p>With no sudo, the way to run two Python versions side by side is <strong>Miniforge</strong> — a conda installer living entirely in the home folder — giving a <code>carla</code> env (Python 3.7) and a <code>ros2</code> env (Python 3.11, with ROS2 from the conda-packaged RoboStack distribution).</p>
+
+<h3>The correct long-term fix</h3>
+<p>The two-process bridge is a deliberate, constraint-driven shortcut — ideal for streaming one small topic, but a poor fit for large binary data like a LiDAR point cloud. The proper end state is to <em>eliminate</em> the clash so the official single-process bridge runs:</p>
+<ul class="clean">
+  <li><strong>Rebuild CARLA's PythonAPI for ROS2's Python</strong> (the canonical fix). CARLA is open source; the 3.7 wheel is just one precompiled output. Recompiling the bindings against Python 3.10/3.11 lets <code>carla</code> and <code>rclpy</code> share one interpreter. Heavy build, but fully supported.</li>
+  <li><strong>Use a version-matched CARLA + ROS2 combination</strong> where a prebuilt binding already matches the interpreter — zero compiling, if such a pairing exists for your versions.</li>
+  <li><strong>Containerize the bridge.</strong> Note there is <em>no</em> official CARLA-published image; the realistic options are building from CARLA's own <code>docker/Dockerfile</code> or using a well-maintained community image — the version alignment is then solved inside the container.</li>
+</ul>
+<div class="callout">
+  <p>Practically, the right call differs by stage: the two-process bridge is correct for the lightweight, GPU-less <strong>odometry</strong> demo here; rebuilding the PythonAPI to run the official <code>carla_ros_bridge</code> is the right move once the GPU-bound <strong>LiDAR</strong> pipeline begins.</p>
+</div>
+
+<h2>3. Standing up CARLA — without a GPU</h2>
+<p>CARLA is built on Unreal Engine and “recommends” an NVIDIA card. The server has neither a discrete GPU nor <code>/dev/dri</code>. The insight: CARLA can run with <strong>off-screen rendering</strong>, where the engine still launches and simulates physics on the CPU — only GPU sensors (cameras, LiDAR) need real graphics hardware. For vehicle physics and odometry, no GPU is required.</p>
+<pre><code><span class="c"># CARLA 0.9.15 — the old AWS download is dead, use the mirror</span>
+mkdir -p ~/carla-sim && cd ~/carla-sim
+wget https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.15.tar.gz
+tar -xzf CARLA_0.9.15.tar.gz
+
+<span class="c"># the Python-3.7 environment for the CARLA client</span>
+conda create -y -n carla python=3.7 && conda activate carla
+pip install ~/carla-sim/PythonAPI/carla/dist/carla-0.9.15-cp37-cp37m-*.whl</code></pre>
+<pre><code><span class="c"># launch headless (no display), software-rendered</span>
+./CarlaUE4.sh -RenderOffScreen -nosound -carla-rpc-port=2000</code></pre>
+
+<h2>4. The ROS2 environment</h2>
+<p>The second conda environment provides ROS2 Humble — again with no root, via <strong>RoboStack</strong> (ROS2 packaged for conda-forge):</p>
+<pre><code>conda create -y -n ros2 python=3.11 && conda activate ros2
+conda config --env --add channels robostack-staging
+conda config --env --add channels conda-forge
+mamba install -y ros-humble-ros-base</code></pre>
+<p>The two environments — <code>carla</code> (3.7) and <code>ros2</code> (3.11) — are the foundation of the bridge: one reads the simulator, the other publishes ROS2 topics, and they communicate over a local UDP socket.</p>
+
+<h2>5. The AGL + ROS2 build tree</h2>
+<p>AGL is assembled with the Yocto/BitBake build system; the ROS2 integration comes from the <code>meta-ros</code> layers. After evaluating the available release branches, the choice was the <strong><code>unagi</code></strong> release — it's internally consistent (Yocto <em>scarthgap</em> throughout) and ships the <code>meta-agl-ros2</code> layer out of the box.</p>
+<pre><code>mkdir -p ~/AGL/master && cd ~/AGL/master
+repo init -u https://gerrit.automotivelinux.org/gerrit/AGL/AGL-repo -b unagi
+repo sync -j4
+
+<span class="c"># configure a QEMU x86-64 build with the ROS2 feature</span>
+source meta-agl/scripts/aglsetup.sh -m qemux86-64 -b build-qemu-ros agl-ros2</code></pre>
+
+<div class="callout">
+  <p><span class="tag">End of community bonding</span> &nbsp;The pieces are chosen and installed: a clear architecture (rosbridge over slirp), two Python environments, CARLA running GPU-less, and an AGL/ROS2 build tree configured. Everything is in place to start building the actual pipeline — which is where the real bugs begin.</p>
+</div>
+
+<div class="pager">
+  <a href="index.html">← Home</a>
+  <div class="spacer"></div>
+  <a href="week1.html">Week 1: Building AGL &amp; proving the link →</a>
+</div>
+
+<div class="footer"><p>GSoC 2025 · Automotive Grade Linux · Community Bonding</p></div>
+</div>
+</body>
+</html>
