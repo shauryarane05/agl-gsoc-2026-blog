@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 3 — Toward hardware, and LiDAR point clouds on AGL</title>
+<meta name="description" content="Week 3: a Raspberry Pi 4B target that wouldn't boot, ordering a Jetson Nano, and getting a live CARLA LiDAR point cloud onto AGL with no GPU.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink active" href="week3.html">Week 3</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 3 · Coding Period</div>
+  <h1>Toward real hardware — and a LiDAR point cloud on AGL, with no GPU</h1>
+  <p class="sub">Two threads this week: the target board hit a hardware wall (and a replacement is on the way), while on the software side the pipeline reached a real milestone — a live CARLA LiDAR point cloud arriving inside AGL, produced on a machine with no graphics card at all.</p>
+</div></header>
+
+<div class="wrap">
+
+<h2>1. The target board — a hardware setback</h2>
+<p>The plan was to move from the emulated AGL VM onto a real single-board computer: a <strong>Raspberry Pi 4B</strong> running an AGL + ROS2 image. The image was prepared, but the board <strong>would not boot</strong> — the failure was at the hardware level, not the image, and repeated attempts didn't get past it.</p>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Decision</span> &nbsp;After discussing the situation with the mentors, we concluded the Pi 4B wasn't the right path forward for this project, and <strong>ordered a Jetson Nano</strong> as the target board instead. The Jetson is a much better fit anyway: it has an NVIDIA GPU, which matters for the GPU-bound parts of the perception stack later on.</p>
+</div>
+<p>The board not being available didn't block progress, though — because the whole pipeline can still be developed and proven against the AGL <em>virtual machine</em>, exactly as in Weeks 1&ndash;2. So the week's real work moved to the software side.</p>
+
+<h2>2. The hard problem: LiDAR with no GPU</h2>
+<p>The core of this project is a <strong>LiDAR</strong> point cloud. The obstacle: CARLA's LiDAR is <em>ray-cast on the GPU</em>, and the only machine large enough to run CARLA is a server with <strong>no graphics card</strong> at all (no NVIDIA, no <code>/dev/dri</code>). The conventional wisdom — and our own earlier assumption — was that this simply can't produce LiDAR data.</p>
+<p>That turned out to be wrong. The fix was to point CARLA's renderer at a <strong>software Vulkan driver</strong> (Mesa's <code>lavapipe</code>), which renders entirely on the CPU. Without it, CARLA grabbed a non-existent GPU driver, its render thread timed out after 60&nbsp;seconds, and the engine crashed. With it, off-screen rendering runs on the CPU and the LiDAR sensor works.</p>
+<pre><code><span class="c"># force CARLA onto the CPU (software) Vulkan driver, then launch headless</span>
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
+./CarlaUE4.sh -RenderOffScreen -vulkan -nosound -carla-rpc-port=2000</code></pre>
+<div class="callout win">
+  <p><strong>Result:</strong> headless CARLA generates a real LiDAR point cloud on a GPU-less server &mdash; thousands of points per frame. It runs slowly (~0.33&nbsp;Hz, since the GPU work falls back to the CPU), so CARLA is driven in <strong>synchronous mode</strong>: the simulation steps one fixed tick at a time and every frame is processed regardless of wall-clock speed. Perfect for development; a real GPU (the incoming Jetson) is only needed for real-time speed.</p>
+</div>
+
+<h2>3. Getting the point cloud all the way to AGL</h2>
+<p>A point cloud is far too large to ship as JSON the way the Week 2 odometry was. So the bridge was extended to carry the cloud as <strong>raw bytes</strong> over a local TCP socket, where a small ROS2 process repacks it into a standard <code>sensor_msgs/PointCloud2</code> message:</p>
+<div class="diagram">CARLA (:2000, software-Vulkan LiDAR)
+   │  lidar_to_sock.py    &larr; Python 3.7: raw LiDAR bytes over TCP :9871
+   ▼
+sock_to_pointcloud2.py    &larr; Python 3.11: repacks into PointCloud2
+   ▼  /carla/lidar  (ROS2 topic)
+rosbridge_websocket :9090 &larr; exposes the topic as WebSocket/JSON
+   ▼
+AGL VM (QEMU)             &larr; subscribes and receives the point cloud</div>
+<p>From inside the AGL virtual machine, a tiny standard-library WebSocket client subscribes to the topic. The host is always reachable from the guest at <code>10.0.2.2</code> over QEMU's networking:</p>
+<pre><code>root@qemux86-64:~# python3 -u /tmp/agl_pc_test.py 10.0.2.2 9090 /carla/lidar
+<span class="g">[agl] handshake OK, subscribing to point cloud...
+[agl] #1 /carla/lidar  5796 points, 92736 bytes  first pt=(-18.90,9.58,3.74)
+[agl] #2 /carla/lidar  5755 points, 92080 bytes  first pt=(-24.28,14.98,5.03)
+[agl] #3 /carla/lidar  5680 points, 90880 bytes  first pt=(-20.75,16.44,4.67)</span></code></pre>
+<p>The AGL image is receiving a live LiDAR point cloud from CARLA &mdash; roughly 5,700 points (~91&nbsp;KB) per frame, with real 3D coordinates, the numbers changing as the simulated car drives.</p>
+
+<figure class="shot">
+  <img src="week3-pointcloud.png" alt="The AGL QEMU console streaming live /carla/lidar point-cloud frames received over rosbridge">
+  <figcaption>Proof: the AGL VM console subscribed to <code>/carla/lidar</code> &mdash; a continuous stream of point-cloud frames (point count, byte size, and a sample 3D point) arriving from headless CARLA over rosbridge. LiDAR point cloud data is now visible <em>inside AGL</em>.</figcaption>
+</figure>
+
+<div class="callout win">
+  <p><strong>End-to-end, on one GPU-less box.</strong> CARLA (software-rendered LiDAR) &rarr; a two-process raw-byte bridge &rarr; a ROS2 <code>PointCloud2</code> topic &rarr; rosbridge &rarr; the AGL VM. Every link runs on a single machine without a graphics card.</p>
+</div>
+
+<h2>4. A perception node, as a proof of concept</h2>
+<p>Alongside the raw cloud, a small <strong>PCL perception node</strong> (C++) was also built and run against the same stream &mdash; voxel downsample &rarr; ground-plane removal (RANSAC) &rarr; Euclidean clustering &rarr; 3D bounding boxes &mdash; producing 5&ndash;8 detected objects per frame. This validates the perception approach, but it currently runs in a development environment on the server. Making that node run <em>embedded on AGL itself</em> (the goal behind &ldquo;ROS-Embedded&rdquo; perception) is part of the upcoming hardware work.</p>
+
+<h2 id="next">5. What's next</h2>
+<ul class="clean">
+  <li><strong>Run the setup on real hardware.</strong> Bring the pipeline up on the Jetson Nano once it arrives &mdash; AGL on real silicon, with the GPU finally available for full-speed LiDAR.</li>
+  <li><strong>Decide on the perception algorithms.</strong> Move from the proof-of-concept clustering to the chosen detection/classification approach for cars, pedestrians and cyclists.</li>
+</ul>
+
+<div class="pager">
+  <a href="week2.html">&larr; Week 2</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 · Automotive Grade Linux · Week 3</p></div>
+</div>
+</body>
+</html>
