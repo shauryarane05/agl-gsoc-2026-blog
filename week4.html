@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 4 — A code repository, and the Jetson Nano comes alive</title>
+<meta name="description" content="Week 4: cleaning up the code and publishing a repository, and bringing up the Jetson Nano after a firmware issue blocked Linux from booting.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink active" href="week4.html">Week 4</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 4 · Coding Period</div>
+  <h1>A clean code repository — and the Jetson Nano finally boots</h1>
+  <p class="sub">Two fronts this week: tidying up the codebase and publishing it as a proper repository, and getting the new target board — the Jetson Nano — past a firmware problem that was stopping Linux from booting. The board is now building and booting.</p>
+</div></header>
+
+<div class="wrap">
+
+<h2>1. Code cleanup and a public repository</h2>
+<p>Until now the code lived as a scatter of scripts on the server. This week I cleaned it up and organised everything into a single, self-contained <strong>code repository</strong>, separate from this blog — so the actual implementation is easy to read, reuse and review.</p>
+<p>The repo is split into three clear layers that mirror the pipeline:</p>
+<ul class="clean">
+  <li><strong><code>carla-bridge/</code></strong> &mdash; the server-side producers: the two-process CARLA&rarr;ROS&nbsp;2 bridge (raw LiDAR bytes over TCP &rarr; <code>PointCloud2</code>) and the earlier odometry bridge.</li>
+  <li><strong><code>perception_ws/</code></strong> &mdash; the C++ PCL perception node (voxel &rarr; RANSAC ground removal &rarr; Euclidean clustering &rarr; 3D boxes).</li>
+  <li><strong><code>agl-client/</code></strong> &mdash; the pure-standard-library rosbridge clients that run <em>inside</em> AGL.</li>
+</ul>
+<p>It ships with a full README (architecture, run instructions, status) and the proof screenshots from Week&nbsp;3.</p>
+<div class="callout win">
+  <p><strong>Repository:</strong> <a href="https://github.com/shauryarane05/agl-carla-perception-GSOC2026">github.com/shauryarane05/agl-carla-perception-GSOC2026</a> &mdash; the complete CARLA&nbsp;&rarr;&nbsp;ROS&nbsp;2&nbsp;&rarr;&nbsp;AGL LiDAR pipeline in one place.</p>
+</div>
+
+<h2>2. The Jetson Nano — a firmware boot problem</h2>
+<p>The Jetson Nano ordered last week (after the Raspberry&nbsp;Pi&nbsp;4B failed to boot) arrived. The first attempts to bring it up didn't go smoothly either: <strong>Linux would not boot</strong> on the board.</p>
+<p>The cause turned out to be <strong>outdated firmware</strong> on the module &mdash; the bootloader/firmware that runs before the OS was too old to bring up the system and load Linux. The fix was to <strong>update the firmware</strong> first, before flashing and booting the operating system.</p>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Root cause</span> &nbsp;Outdated on-board firmware was preventing Linux from booting. Once the firmware was updated, the board came up normally &mdash; the OS itself was never the problem.</p>
+</div>
+
+<h2>3. The board is up — building and booting</h2>
+<p>With the firmware updated, the Jetson Nano now <strong>builds and boots successfully</strong>. That clears the hardware blocker that has held up the move off the emulated AGL VM for the last two weeks, and means real-hardware work can finally begin.</p>
+<div class="callout win">
+  <p><strong>Status:</strong> Jetson Nano is alive &mdash; firmware updated, image building, and the board boots. The target platform is ready for the pipeline.</p>
+</div>
+
+<h2 id="next">4. What's next</h2>
+<p>The goal for the coming week is simple and concrete: <strong>replicate the whole pipeline on the Jetson Nano</strong>, the same setup proven on the AGL VM, and carry it all the way through &mdash; <strong>until the board is receiving live LiDAR readings</strong>. That means standing up the bridge and rosbridge against the Jetson, and confirming a real point cloud arrives on the hardware target just as it did inside the VM.</p>
+
+<div class="pager">
+  <a href="week3.html">&larr; Week 3</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 · Automotive Grade Linux · Week 4</p></div>
+</div>
+</body>
+</html>
