@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Week 5 — Bare-metal bring-up: getting AGL onto the Jetson</title>
-<meta name="description" content="Week 5: flashing the hand-built AGL image onto the Jetson Orin Nano, watching it boot on real silicon, and the two hardware bugs — an unreadable SD card and a firmware/OS generation mismatch — that the bring-up turned up.">
+<title>Week 5 — Building the AGL image and bringing up the Jetson</title>
+<meta name="description" content="Week 5: building a custom AGL image for the Jetson Orin Nano from source, flashing it, and fighting through the bugs — three build failures, an unreadable SD card, a firmware/OS generation mismatch, and a recovery-mode saga.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,119 +21,103 @@
 
 <header class="hero"><div class="inner">
   <div class="kicker">Week 5 · Coding Period</div>
-  <h1>Bare-metal bring-up: getting AGL onto the Jetson</h1>
-  <p class="sub">The full bare-metal week: compiling a custom AGL image for the Jetson Orin Nano from source, getting it onto the board, and chasing down the two hardware bugs the bring-up exposed — a card the board couldn't read, and a firmware that was a whole generation too new.</p>
+  <h1>Building the AGL image, and bringing up the Jetson</h1>
+  <p class="sub">This week I built a custom AGL image for the Jetson Orin Nano from source and tried to boot it on the real board. Here's everything I did, in order — and every wall I hit along the way, and how I got past it.</p>
 </div></header>
 
 <div class="wrap">
 
-<p>This week was the full <strong>bring-up</strong>: I compiled a custom AGL image for the Jetson Orin Nano from source, then tried to boot it on the actual board. It is the step where everything that was theoretical — the right BSP, the right device tree, the right firmware — meets a physical piece of hardware that either turns on or doesn't. As is usual with bare-metal work, the gap between "it built" and "it boots" was where all the interesting problems lived.</p>
+<p>The plan for the week was simple to state: <strong>build AGL for the Jetson, put it on the board, boot it.</strong> Each of those three steps turned into its own fight. This is the log.</p>
 
-<h2>1. How I built the image</h2>
-<p>You don't write an operating system by hand — you assemble it with a build system. AGL uses <strong>Yocto / BitBake</strong>: you hand it a stack of <em>recipes</em> (text files that each say "fetch this source, compile it like so, install it there"), and it downloads, cross-compiles, and assembles the whole OS into a bootable image. For this target that meant running <strong>5,356</strong> individual build tasks.</p>
-<p>An image is built from stacked <em>layers</em>, each adding a piece:</p>
-<ul class="clean">
-  <li><strong><code>poky</code></strong> &mdash; the core Yocto/OpenEmbedded Linux plumbing.</li>
-  <li><strong><code>meta-agl</code></strong> &mdash; everything that makes it Automotive Grade Linux.</li>
-  <li><strong><code>meta-tegra</code></strong> &mdash; the community BSP with the kernel, bootloader and firmware for NVIDIA Jetson hardware.</li>
-</ul>
-<p>The catch: AGL officially supports QEMU, Raspberry&nbsp;Pi and R-Car &mdash; <strong>not Jetson</strong>. There's no button for it. So I wired <code>meta-tegra</code> into the build by hand with a small <em>machine template</em> that names the board and pulls the Jetson layer in:</p>
-<pre><code><span class="c"># the machine config I added for the Orin Nano</span>
-MACHINE = <span class="s">"jetson-orin-nano-devkit"</span>
-IMAGE_FSTYPES:append:pn-agl-image-minimal = <span class="s">" tegraflash"</span></code></pre>
-<p class="label note">Host gotcha</p>
-<p>The build server runs a Linux new enough that its system Python (3.13) is <em>too new</em> for this version of BitBake, which would abort on a sanity check. The fix &mdash; and an important one because I have no root on that server &mdash; was to source Yocto's <strong>buildtools tarball</strong>, a self-contained modern toolchain (Python 3.12) that lives entirely in my home directory. With that in place the build is two commands:</p>
-<pre><code>. meta-agl/scripts/aglsetup.sh -m jetson-orin-nano-devkit -b build-jetson
-bitbake agl-image-minimal</code></pre>
-<p>It ran inside a <code>tmux</code> session so the multi-hour build survives a dropped SSH connection. And it did <em>not</em> sail through on the first try &mdash; gluing two layers together that were never meant to meet surfaced three distinct integration bugs, each of which failed the build until fixed in the machine template:</p>
+<h2>1. Building the AGL image</h2>
+<p><strong>What I did:</strong> AGL is assembled with Yocto/BitBake from stacked layers — <code>poky</code> (core) + <code>meta-agl</code> (the AGL bits) + <code>meta-tegra</code> (the Jetson BSP). AGL doesn't officially support Jetson, so there was no ready-made target; I wrote a small machine template to name the board and pull <code>meta-tegra</code> into the build, then kicked off <code>bitbake agl-image-minimal</code> (5,356 build tasks) inside a <code>tmux</code> session so it would survive a dropped SSH connection.</p>
+<p>It did not go cleanly. I hit four separate walls before it built.</p>
 
-<p class="label bug">Bug 1 &mdash; circular dependency</p>
-<p>My first attempt added the Jetson flash image type globally, which also landed it on the tiny init-ramdisk image &mdash; which then tried to wrap <em>itself</em> in a flash bundle: <code>tegra-minimal-initramfs ... has circular dependency on do_image_tegraflash</code>. The fix was to scope that output to my image only (the <code>:pn-agl-image-minimal</code> suffix above).</p>
+<p class="label bug">Problem — host Python too new</p>
+<p>The build server's system Python (3.13) is newer than this Yocto release supports, and BitBake bailed out on a sanity check. I have no root on that server, so I couldn't just install an older Python.</p>
+<p class="label fix">Fix</p>
+<p>Sourced Yocto's <strong>buildtools tarball</strong> — a self-contained toolchain (Python 3.12) that runs entirely from my home directory, no root needed. BitBake was happy after that.</p>
 
-<p class="label bug">Bug 2 &mdash; a missing init-ramdisk format</p>
-<p>AGL hard-sets the init-ramdisk format to <code>ext4.gz</code>, but meta-tegra's bootloader bits expect the plain <code>cpio.gz</code> that AGL had dropped, so the bootloader recipe failed copying a file that was never produced. Fix: add it back.</p>
+<p class="label bug">Problem — circular dependency</p>
+<p>First build died with <code>tegra-minimal-initramfs ... has circular dependency on do_image_tegraflash</code>. I'd added the Jetson flash-image output globally, so it also landed on the init-ramdisk, which tried to wrap itself in a flash bundle.</p>
+<p class="label fix">Fix</p>
+<p>Scoped the flash output to my image only:</p>
+<pre><code>IMAGE_FSTYPES:append:pn-agl-image-minimal = <span class="s">" tegraflash"</span></code></pre>
+
+<p class="label bug">Problem — missing init-ramdisk format</p>
+<p>Next failure: the bootloader recipe tried to copy a <code>cpio.gz</code> init-ramdisk that didn't exist. AGL hard-sets the format to <code>ext4.gz</code> and drops the plain <code>cpio.gz</code> that meta-tegra needs.</p>
+<p class="label fix">Fix</p>
 <pre><code>INITRAMFS_FSTYPES:append = <span class="s">" cpio.gz"</span></code></pre>
 
-<p class="label bug">Bug 3 &mdash; a partition layout that doesn't exist</p>
-<p>AGL forces a <code>wic.xz</code> disk image, but the Jetson boots through meta-tegra's own flashing path and has no <code>.wks</code> partition layout, so <code>do_image_wic</code> died looking for one. Fix: drop the wic outputs for this machine.</p>
+<p class="label bug">Problem — a partition layout that doesn't exist</p>
+<p>Then <code>do_image_wic</code> died looking for a <code>.wks</code> partition file. AGL forces a <code>wic.xz</code> disk image, but the Jetson boots through meta-tegra's own path and has no wic layout.</p>
+<p class="label fix">Fix</p>
 <pre><code>IMAGE_FSTYPES:remove = <span class="s">"wic.xz wic.bmap wic.xz.sha256sum"</span></code></pre>
 
 <div class="callout win">
-  <p><strong>Build succeeded:</strong> all 5,356 tasks completed, producing a ~149&nbsp;MB Jetson <em>flash bundle</em> &mdash; the rootfs, bootloader, device tree and flashing scripts in one tarball. Crucially, all three fixes live in the machine template, so they survive a re-run of the setup script and the build is now reproducible.</p>
+  <p><strong>Result:</strong> all 5,356 tasks finished, producing a ~149&nbsp;MB Jetson flash bundle (rootfs + bootloader + device tree + flash scripts). All four fixes live in the machine template, so the build is reproducible — re-running it doesn't undo them.</p>
 </div>
 
-<h2>2. From an image file to an SD card</h2>
-<p>The meta-tegra build produces a <em>flash bundle</em> — a tarball with the rootfs, the bootloader, the device tree, and the scripts that assemble them into something a board can boot. For an SD-card boot, one of those scripts stitches everything into a single disk image with the correct partition layout.</p>
-<p>The first snag was mundane but real: the default image is built for a 32&nbsp;GB card, but a "32&nbsp;GB" card is really only ~29.7&nbsp;GiB of usable space — the default image didn't fit with any margin. I regenerated it at a slightly smaller size so it lands comfortably on the card, then wrote it out:</p>
-<pre><code><span class="c"># write the image to the card, verifying as it goes</span>
-sudo bmaptool copy --bmap agl-orin-sd.img.bmap agl-orin-sd.img /dev/sdX
-<span class="g">bmaptool: info: 100% copied</span>
-<span class="g">bmaptool: info: synchronizing '/dev/sdX'</span></code></pre>
-<p>Card flashed, contents verified. So far, so easy.</p>
+<h2>2. Flashing it to an SD card</h2>
+<p><strong>What I did:</strong> the bundle includes a script that builds a single SD-card image with the right partitions. I wrote that to the card with <code>bmaptool</code>.</p>
+<p class="label bug">Problem</p>
+<p>The default image is sized for a full 32&nbsp;GB, but a "32&nbsp;GB" card is really ~29.7&nbsp;GiB — no margin, didn't fit.</p>
+<p class="label fix">Fix</p>
+<p>Regenerated the image a bit smaller so it fits with room to spare, then flashed:</p>
+<pre><code>sudo bmaptool copy --bmap agl-orin-sd.img.bmap agl-orin-sd.img /dev/sdX
+<span class="g">bmaptool: info: 100% copied</span></code></pre>
 
 <h2>3. First boot — it's alive</h2>
-<p>SD card into the Jetson, a USB-to-serial adapter onto the board's debug UART so I could watch every line of the boot, and power on. The serial console immediately started scrolling — and it was unmistakably <em>my</em> image:</p>
-<pre><code><span class="c">t23x_general System firmware version 39.2.0 ...</span>
-L4TLauncher: Attempting Direct Boot
-EFI stub: Booting Linux Kernel...
+<p><strong>What I did:</strong> card into the Jetson, USB-to-serial adapter on the debug UART to watch the boot, power on. The console immediately scrolled my image:</p>
+<pre><code>L4TLauncher: Attempting Direct Boot
 Linux version <span class="s">5.15.185-l4t-r36.5</span> ... (oe-user@)
 Machine model: <span class="s">NVIDIA Jetson Orin Nano Developer Kit</span></code></pre>
-<p>Three things in that log made it a genuine milestone. The bootloader picked up the kernel and ran <strong>Direct Boot</strong>; the kernel string ends in <code>oe-user@</code>, the build-host signature of an OpenEmbedded/Yocto build — proof this was the image I compiled, not some stock NVIDIA OS; and the board matched its own device tree. To be completely sure it was AGL and not just "some Yocto Linux," I checked the rootfs identity on the card directly:</p>
+<p>The <code>oe-user@</code> tag proves it's my Yocto build, not stock NVIDIA. And I confirmed it's really AGL by reading the rootfs identity off the card:</p>
 <pre><code>$ cat /etc/os-release
 <span class="g">ID=agl</span>
-NAME="Automotive Grade Linux"
 PRETTY_NAME="Automotive Grade Linux 21.0.1 (unagi)"</code></pre>
 <div class="callout win">
-  <p><strong>Confirmed:</strong> the firmware loads and runs the AGL kernel I built, on the real Jetson, and the root filesystem is bona-fide Automotive Grade Linux 21.0.1. The OS itself is correct. That settled the question of whether the build was sound — it is.</p>
+  <p><strong>The build works.</strong> The firmware loads and runs my AGL kernel on the real Jetson, and the root filesystem is genuine Automotive Grade Linux. That alone validated the whole build effort.</p>
 </div>
 
-<h2>4. Trouble #1 — the card the board couldn't read</h2>
-<p>Then the boot stalled. After loading the kernel, the log filled with the same error over and over:</p>
+<h2>4. Problem — the board couldn't read the SD card</h2>
+<p>Then the boot stalled. Right after loading the kernel, the log filled with the same error, forever:</p>
 <pre><code><span class="r">blk_update_request: I/O error, dev mmcblk0, sector 0 (READ)</span>
-<span class="r">mmcblk0: unable to read partition table</span>
-<span class="r">/dev/mmcblk0p1: Can't open blockdev</span></code></pre>
-<p>Every single read from the SD card failed — the kernel couldn't even read sector&nbsp;0, the partition table, so it could never mount the root filesystem. The boot had nowhere to go.</p>
-<p class="label bug">Bug</p>
-<p>The obvious first guess is a bad card or a bad write. I ruled that out cleanly: I put the same card into my laptop, and it read <em>perfectly</em> — all the partitions enumerated and the AGL rootfs mounted without a hiccup. The firmware on the Jetson had also just read the card (that's how it loaded the kernel). So the card was fine, the image was fine, and two different readers had no trouble with it. Only the <em>kernel's</em> SD driver, on the board, couldn't talk to it.</p>
-<p>That "works everywhere except the running kernel on this board" pattern is a fingerprint, and it pointed somewhere I hadn't been looking.</p>
+<span class="r">mmcblk0: unable to read partition table</span></code></pre>
+<p>Every read from the card failed — it couldn't even read sector 0, so it could never mount the root filesystem.</p>
+<p><strong>What I tried:</strong> my first guess was a bad card or bad write. I ruled that out fast — I put the same card in my laptop and it read <em>perfectly</em>, every partition mounted. The Jetson's own firmware had also just read it (that's how it loaded the kernel). So the card and the image were fine; only the running kernel couldn't talk to the card. That narrowed it down a lot.</p>
 
-<h2>5. The real culprit — a firmware a whole generation too new</h2>
-<p>The clue was hiding in plain sight in the very first line of the boot log. I cross-referenced the two version numbers the board was reporting:</p>
+<h2>5. The root cause — a firmware a whole generation too new</h2>
+<p>The clue was in the first line of the boot log. I lined up the two version numbers the board reported:</p>
 <table>
-  <tr><th>Component</th><th>Version</th><th>Means</th></tr>
-  <tr><td>Board UEFI / firmware</td><td><code>39.2.0</code> (L4T r39.2)</td><td>JetPack&nbsp;7.2 — kernel 6.8, Ubuntu 24.04 era</td></tr>
-  <tr><td>My AGL image's kernel</td><td><code>5.15-l4t-r36.5</code> (L4T r36)</td><td>JetPack&nbsp;6.2 — kernel 5.15, Ubuntu 22.04 era</td></tr>
+  <tr><th>Piece</th><th>Version</th><th>Generation</th></tr>
+  <tr><td>Board firmware</td><td><code>39.2.0</code> (L4T r39.2)</td><td>JetPack&nbsp;7.2</td></tr>
+  <tr><td>My AGL kernel</td><td><code>5.15-l4t-r36.5</code></td><td>JetPack&nbsp;6.2</td></tr>
 </table>
-<p>There it was. The board's low-level firmware had been updated all the way to <strong>JetPack&nbsp;7.2</strong>, but the AGL release I'm building against (the "unagi" branch, Yocto scarthgap) targets the <strong>JetPack&nbsp;6.2</strong> generation. I was running a JetPack&nbsp;6 operating system on top of JetPack&nbsp;7 firmware — a full generation apart.</p>
+<p>The board's firmware had been updated to <strong>JetPack&nbsp;7.2</strong>, but the AGL branch I build against targets <strong>JetPack&nbsp;6.2</strong> — a full generation apart.</p>
 <div class="callout warn">
-  <p><span class="label note" style="margin:0">Root cause</span> &nbsp;On the Jetson, the firmware (UEFI / MB1 / MB2 / BPMP) is what configures the SoC's hardware — <strong>including the SD/MMC controller's pin-mux and signal timing</strong> — before handing off to Linux. The JetPack&nbsp;7 firmware sets that controller up the r39 way; my JetPack&nbsp;6 kernel's device tree expects the r36 layout. The two disagree on how to drive the SD card, so the kernel's reads fail. The firmware can still read the card in its own slow, safe mode (which is why it booted the kernel at all), but the kernel inherits a controller configured for a different BSP generation and falls over. The card and the cable were red herrings; the version skew was the disease.</p>
+  <p><span class="label note" style="margin:0">Why it breaks the SD card</span> &nbsp;On the Jetson, the firmware sets up the SoC hardware — including the SD/MMC controller's timing — before handing off to Linux. The JetPack&nbsp;7 firmware configures it one way; my JetPack&nbsp;6 kernel expects another. They disagree on how to drive the card, so the kernel's reads fail. The firmware can still read it in a slow safe mode (so it boots the kernel), but the kernel inherits a controller set up for the wrong generation. The card and cable were never the problem — the version mismatch was.</p>
 </div>
-<p>This was the genuinely satisfying moment of the week — the kind of bug that looks like flaky hardware until a single version string reframes the whole thing. It also explains why the SD path was never going to be reliable: it leans on the mismatched firmware to hand off to a kernel that disagrees with it.</p>
 
-<h2>6. The fix — realign the two halves</h2>
-<p>The clean solution is to make the firmware and the OS the same generation again. The most direct way to do that with what I already have: a <strong>full flash over USB recovery mode</strong>. The meta-tegra flash bundle ships its own matching r36 firmware and bootloader, so a recovery-mode flash doesn't just write the rootfs — it <em>rewrites the board's firmware down to r36</em> as well, producing one coherent JetPack&nbsp;6 system from boot ROM to userspace. No more split-brain.</p>
-<ul class="clean">
-  <li><strong>SD boot</strong> (what I tried first) trusts whatever firmware is already on the board — and that firmware was the problem.</li>
-  <li><strong>USB-recovery flash</strong> replaces the firmware <em>and</em> the OS together, so they can't disagree. That's the right tool here.</li>
-</ul>
+<h2>6. The fix — realign firmware and OS</h2>
+<p><strong>The plan:</strong> make the firmware and the OS the same generation again. The cleanest way is a <strong>full flash over USB recovery mode</strong> — the meta-tegra bundle ships its own matching firmware, so a recovery flash rewrites the board's firmware <em>down</em> to JetPack&nbsp;6 and writes the OS together, in one coherent system. SD-only boot leans on whatever firmware is already there; the recovery flash replaces it, which is exactly what's needed here.</p>
 
-<h2>7. Trouble #2 — actually getting into recovery mode</h2>
-<p>Which led straight into the week's second rabbit hole. To flash over USB, the board has to be put into <strong>Force Recovery Mode</strong>, where it stops booting and instead presents itself to the host PC as a special USB device (<code>0955:7523 NVIDIA Corp. APX</code>). The procedure sounds trivial — jumper two pins on a header, apply power — and it refused to work for a frustratingly long time. Working through it was an education in how many independent things have to be right at once:</p>
+<h2>7. Problem — actually getting into recovery mode</h2>
+<p>Which dropped me straight into the next fight. To flash over USB, the board has to enter <strong>Force Recovery Mode</strong>, where it stops booting and shows up on the laptop as a special USB device (<code>0955 NVIDIA Corp. APX</code>). Simple on paper — jumper two pins, apply power — and it refused to work for hours. What I worked through:</p>
 <ul class="clean">
-  <li><strong>The right header, the right pins.</strong> The Orin Nano devkit's little 12-pin button header carries the serial console, the power button, reset, and force-recovery all in adjacent pairs. It is very easy to be one pair off — and shorting <em>reset</em> looks a lot like shorting recovery (the board goes quiet either way), but only one of them actually enters recovery.</li>
-  <li><strong>The cable.</strong> A huge number of USB-C cables are charge-only, with no data lines — they look identical to data cables. I confirmed mine actually carried data by plugging a phone into it and watching it enumerate for file transfer.</li>
-  <li><strong>The path to the host.</strong> Going through a USB hub or dock can break recovery enumeration; the board wants a direct port. A plain USB&nbsp;2.0 port is, counter-intuitively, often more reliable for this than USB&nbsp;3.0.</li>
-  <li><strong>What is <em>not</em> the problem.</strong> One worthwhile dead-end ruled out: on Linux, no special driver is needed to <em>see</em> the recovery device — <code>lsusb</code> lists it natively. (The driver dance is a Windows-only concern.) So if it isn't showing up, the device genuinely isn't enumerating yet — the answer is always in the pins, the cable, or the port, never a missing driver.</li>
+  <li><strong>Wrong pins.</strong> The little button header packs power, reset, recovery and the serial console into adjacent pin-pairs. Shorting <em>reset</em> looks just like recovery on the serial console (board goes silent), but doesn't enter recovery. Easy to be one pair off.</li>
+  <li><strong>The cable.</strong> Tons of USB-C cables are charge-only with no data lines. I proved mine actually carried data by plugging a phone into it and watching it mount for file transfer.</li>
+  <li><strong>The connection.</strong> Going through a USB hub/dock can kill recovery; the board wants a direct port, and a plain USB&nbsp;2.0 port is often more reliable than USB&nbsp;3.0.</li>
+  <li><strong>A dead end I ruled out:</strong> on Linux you don't need any driver to <em>see</em> the recovery device — <code>lsusb</code> lists it natively. So when it doesn't show up, the answer is always pins/cable/port, never a missing driver.</li>
 </ul>
-<p class="label note">Lesson</p>
-<p>None of these are hard individually. The difficulty is that when the board "does nothing," <em>all</em> of them are suspects simultaneously, and you have to eliminate them one at a time with a way to observe each. The serial console — telling me whether the board went silent because it entered recovery versus because it simply reset — was the single most valuable instrument in the whole process.</p>
+<p>The serial console was the key tool the whole time — it's what let me tell whether the board went silent because it entered recovery, or just because it reset.</p>
 
 <h2 id="next">8. Where it stands, and what's next</h2>
-<p>Honest status: the AGL image is proven correct and the board <strong>boots the AGL kernel on real hardware</strong> — that's the headline result, and it validates the build end to end. The remaining work is mechanical: complete the USB-recovery flash so the firmware and OS are the same generation, which clears the SD read failures and gets the board all the way to a login prompt.</p>
+<p><strong>Status:</strong> the image is proven correct and the board <strong>boots my AGL kernel on real hardware</strong> — the headline result for the week. What's left is mechanical: finish the USB-recovery flash to put the firmware and OS on the same generation, which clears the SD read errors and takes the board all the way to a login prompt.</p>
 <div class="callout">
-  <p><strong>Next week:</strong> finish the recovery-mode flash and realign the firmware to the AGL build, reach a full AGL userspace on the Jetson, and then — finally back on plan — layer <code>meta-ros</code> on top so the board can subscribe to the CARLA LiDAR stream over the network, exactly as the emulated VM already does.</p>
+  <p><strong>Next:</strong> finish the recovery flash and reach a full AGL userspace on the Jetson, then — back on the main plan — add <code>meta-ros</code> so the board can subscribe to the CARLA LiDAR stream over the network, exactly as the emulated VM already does.</p>
 </div>
-<p>Bare-metal weeks are humbling: a build that compiled flawlessly still took a multi-day fight with cables, header pins, and a version number to coax into life. But the hard-won part — understanding <em>why</em> a JetPack 6 image and JetPack 7 firmware can't share a board — is exactly the kind of knowledge that doesn't transfer from a tutorial. You earn it once, on a quiet serial console at midnight, and then you have it for good.</p>
+<p>Bare-metal weeks are humbling — a build that compiled cleanly still took days of cables, header pins and a single version number to coax toward life. But understanding <em>why</em> a JetPack&nbsp;6 image and JetPack&nbsp;7 firmware can't share a board is the kind of thing you only learn by hitting it.</p>
 
 <div class="pager">
   <a href="week4.html">&larr; Week 4</a>
