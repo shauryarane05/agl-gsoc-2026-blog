@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 6 — AGL boots on the Jetson: winning the SD-card battle</title>
+<meta name="description" content="Week 6: the recovery flash that didn't fix the SD card, disproving my own firmware-mismatch theory, and tracking the real cause down to a 1.8V UHS voltage-switch — a one-line device tree change that finally boots AGL 21 to a login shell on real hardware.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink active" href="week6.html">Week 6</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 6 · Coding Period</div>
+  <h1>AGL boots on the Jetson — winning the SD-card battle</h1>
+  <p class="sub">Almost the whole week went into one bug. This is the honest account of it: the fix I was sure about that didn't work, disproving my own theory, and the actual root cause hiding one layer deeper — a single voltage-switch on the SD bus. It ends at a login prompt on real hardware.</p>
+</div></header>
+
+<div class="wrap">
+
+<p>Week 5 ended mid-fight. The board booted my AGL kernel off the SD card, then drowned in <code>I/O error, dev mmcblk0, sector 0</code> and never mounted the root filesystem. My leading theory was a <strong>firmware/OS generation mismatch</strong> — the board's firmware was JetPack 7, my kernel was JetPack 6 — and the plan was a full USB-recovery flash to pull the firmware back down to the matching generation. This week I did exactly that. It did not fix it. What followed was the real debugging.</p>
+
+<h2>1. The recovery flash — the fix I was sure of</h2>
+<p><strong>What I did:</strong> got the board into Force Recovery Mode (it enumerated as <code>0955 NVIDIA Corp. APX</code>), and ran the meta-tegra flash bundle, which ships its own matching firmware. It rewrote the board's firmware and OS together as one coherent JetPack-6 system.</p>
+<pre><code><span class="g">Flashing completed</span>
+Coldbooting the device</code></pre>
+<p>I checked the version off the boot log afterwards, and it was genuinely downgraded:</p>
+<table>
+  <tr><th>Piece</th><th>Before</th><th>After flash</th></tr>
+  <tr><td>Board firmware</td><td><code>39.2.0</code> (JetPack&nbsp;7.2)</td><td><code>36.5.0</code> (JetPack&nbsp;6.2)</td></tr>
+  <tr><td>AGL kernel</td><td><code>5.15-l4t-r36.5</code></td><td><code>5.15-l4t-r36.5</code></td></tr>
+</table>
+<p>Firmware and kernel were now the same generation. By my theory, the SD errors should have been gone.</p>
+
+<h2>2. Same errors — my theory was wrong</h2>
+<p>The board booted, loaded the kernel, and hit the <em>exact same</em> flood:</p>
+<pre><code><span class="r">blk_update_request: I/O error, dev mmcblk0, sector 0 (READ)</span>
+<span class="r">mmcblk0: unable to read partition table</span></code></pre>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Being honest about it</span> &nbsp;The generation mismatch was <strong>not</strong> the root cause. I'd built a clean, plausible story around one version number and it was wrong. Aligning the firmware changed nothing — which was actually useful: it eliminated the single biggest variable and forced me to look one layer deeper, at the kernel's own conversation with the card.</p>
+</div>
+
+<h2>3. Ruling things out, one at a time</h2>
+<p>With the tidy explanation gone, I went back to first principles and knocked out every suspect I could:</p>
+<ul class="clean">
+  <li><strong>The card?</strong> No. Same card mounted perfectly in my laptop — every partition readable.</li>
+  <li><strong>The firmware?</strong> No. Just realigned it to the exact matching generation; identical errors.</li>
+  <li><strong>Power?</strong> No. Chased a red herring here — a 5&nbsp;V/5&nbsp;A USB-C brick that wouldn't even power the board on (the Orin Nano needs a <em>negotiating</em> USB-C PD supply or a 7–20&nbsp;V barrel jack, not a dumb 5&nbsp;V brick). Ruled power out as the cause of the reads failing.</li>
+  <li><strong>The OS boot chain?</strong> No. The bootloader reads the very same card fine — that's how it loads the kernel in the first place.</li>
+</ul>
+<p>That last point was the whole key. <strong>The firmware reads the card. The kernel cannot.</strong> Same card, same slot, same board, seconds apart — the only thing that changes between them is <em>how</em> each one drives the SD bus.</p>
+
+<h2>4. The real root cause — a 1.8V voltage-switch that fails</h2>
+<p>An SD card can run its data lines at two signaling voltages: a slow, universally-safe <strong>3.3&nbsp;V</strong>, or a fast <strong>1.8&nbsp;V</strong> UHS high-speed mode (SDR50/DDR50/SDR104). The bootloader is conservative — it stays at 3.3&nbsp;V, so it always works. The Linux kernel is ambitious — it boots, sees a UHS-capable card, and immediately tries to renegotiate the bus <strong>up from 3.3&nbsp;V to 1.8&nbsp;V</strong> for speed.</p>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Why it corrupts every read</span> &nbsp;On this carrier board + card combination, that 3.3&nbsp;V→1.8&nbsp;V handshake fails at the electrical level. The controller believes it switched; the card (or the signal integrity on those lines) doesn't follow it cleanly. From that moment every read comes back garbage — including sector 0, the partition table — so the kernel can never mount root. The bootloader worked for exactly one reason: <em>it never attempts the switch.</em></p>
+</div>
+<p>So the fix isn't firmware, or power, or the card. It's telling the kernel to be as conservative as the bootloader: <strong>never leave 3.3&nbsp;V.</strong></p>
+
+<h2>5. The fix — one node in the device tree</h2>
+<p>The SD/MMC controller is a node in the board's device tree — <code>mmc@3400000</code>. I patched it to forbid the 1.8&nbsp;V switch and hold the power rail steady, and stripped out the UHS high-speed modes so the kernel never even tries them:</p>
+<pre><code>mmc@3400000 {
+    status = <span class="s">"okay"</span>;
+    <span class="g">no-1-8-v;</span>                    <span class="s">/* never switch to 1.8V UHS */</span>
+    <span class="g">nvidia,vmmc-always-on;</span>       <span class="s">/* keep the card's power rail steady */</span>
+    <span class="r">/* removed: sd-uhs-sdr25 / sdr50 / ddr50 / sdr104 */</span>
+};</code></pre>
+<p><strong>Deploying it without a full reflash:</strong> normally the kernel's device tree comes from a flashed partition, so testing a change would mean rebuilding and reflashing every time. Instead I used an <strong>FDT override</strong> — I compiled the patched device tree, dropped it on the card's boot partition, and added one line to <code>extlinux.conf</code> pointing the bootloader at it:</p>
+<pre><code>LINUX /boot/Image
+INITRD /boot/initrd
+<span class="g">FDT /boot/kernel_tegra234-...-nv-super-fixed.dtb</span></code></pre>
+<p>Now the bootloader hands the kernel <em>my</em> device tree instead of the flashed one — a full test-fix loop in seconds instead of a rebuild.</p>
+
+<h2>6. It's alive — a login shell on real hardware</h2>
+<p>Reinserted the card, powered on, watched the serial console. No error flood. The kernel mounted root and dropped straight to:</p>
+<pre><code>Automotive Grade Linux 21.0.1 jetson-orin-nano-devkit ttyTCU0
+<span class="g">jetson-orin-nano-devkit login:</span></code></pre>
+<p>Logged in as root and confirmed the whole stack end to end:</p>
+<pre><code>$ cat /etc/os-release
+<span class="g">ID=agl</span>
+VERSION=<span class="s">"21.0.1 (unagi)"</span>
+$ uname -r
+<span class="g">5.15.185-l4t-r36.5</span>-1033.33+g9c6d5c8154da
+$ df -h /
+/dev/mmcblk0p1   ...  <span class="g">/</span>   <span class="s">(read-write)</span></code></pre>
+<div class="callout win">
+  <p><strong>AGL 21 "Unagi" now boots to a working root shell on a real Jetson Orin Nano.</strong> Genuine hand-built Yocto image, matching firmware, root filesystem mounted read-write off the SD card, GPU (<code>nvgpu</code>) up. After almost a week on one bug, the board is finally a usable Linux machine.</p>
+</div>
+
+<h2>7. Where the fix actually came from</h2>
+<p>There was no single guide for this — I want to be clear about that, because it's the part I'm most proud of. The <em>mechanism</em> (a failed 3.3&nbsp;V→1.8&nbsp;V switch) I reasoned out from the symptom: bootloader reads, kernel doesn't, only the bus signaling differs. <code>nvidia,vmmc-always-on</code> came from a matching NVIDIA developer-forum thread on Orin SD instability. <code>no-1-8-v</code> is a standard property from the <em>upstream</em> Linux MMC device-tree binding, not anything Jetson-specific. Assembling those three facts into the fix was the work.</p>
+<p>And to a question my mentor asked — it's <strong>not specific to the Orin Nano "Super."</strong> The change targets the SDMMC controller node, which is identical across the whole Orin Nano / NX devkit family; only the device tree <em>filename</em> carries the "super" tag. It's a known Orin-family SD signal-integrity quirk, reported on plain Orin Nano boards too.</p>
+
+<h2 id="next">8. Where it stands, and what's next</h2>
+<p><strong>Status:</strong> the target board is fully up — AGL boots to userspace on real silicon. That closes out the entire hardware bring-up arc that started back in Week 3 with a Raspberry Pi that wouldn't boot.</p>
+<p>Two loose ends, then the real goal:</p>
+<ul class="clean">
+  <li><strong>Make the fix permanent.</strong> The device tree patch currently lives on one card via the FDT override; I'll bake it into the machine config on the build server so every image ships with it and boots cleanly with no manual step.</li>
+  <li><strong>Room to grow.</strong> The rootfs is tiny and nearly full — expand it to fill the card so there's space to build on.</li>
+</ul>
+<div class="callout">
+  <p><strong>Next — the payoff:</strong> add <code>meta-ros</code> to the Jetson image so the board can run ROS2 and <strong>subscribe to the live CARLA LiDAR stream over the network, on real hardware.</strong> That's the transport leg from the project's ideal diagram — workstation → real target over a LAN — running on real silicon instead of an emulated VM for the first time. Everything the QEMU pipeline already proved now gets to run on the board itself.</p>
+</div>
+<p>Bare-metal debugging is a different discipline from writing code. The lesson that'll stick from this week isn't the device tree property — it's watching a clean, confident theory die on contact with the hardware, and having to trust the evidence over the story I'd already told myself.</p>
+
+<div class="pager">
+  <a href="week5.html">&larr; Week 5</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 · Automotive Grade Linux · Week 6</p></div>
+</div>
+</body>
+</html>
