@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 7 — A planning week: deciding where perception runs while the NVMe is in transit</title>
+<meta name="description" content="Week 7: a deliberate planning week with the board blocked on hardware. Tidying the repo, and settling the architectural question the project had been avoiding — where perception should actually run, and why moving to NVMe makes the entire device-tree saga irrelevant.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL × CARLA · <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink active" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 7 · Coding Period</div>
+  <h1>A planning week — deciding where perception runs</h1>
+  <p class="sub">The board was blocked on hardware in transit, so this week went to repo cleanup and to the architectural question the project had been quietly stepping around since Week 1: the three blockers that turned out to be one blocker, and the plan that comes out of answering it honestly.</p>
+</div></header>
+
+<div class="wrap">
+
+<p>Week 6 ended at a login prompt on real silicon. The obvious next move was to install ROS2 on the board and finish the job. I started down that road, hit a wall almost immediately, and the wall turned out to be a storage problem — one I can't solve until the NVMe drive arrives.</p>
+
+<p>Rather than burn the week half-fixing something that a hardware change would make moot, I used it deliberately: tidied up the repository, and spent the rest of it on a question I should have asked in Week 2. This is a planning post. I'd rather write one of those honestly than dress up a week of reading as a week of shipping.</p>
+
+<h2>1. The wall: 47.9 MB</h2>
+<p>The Jetson's root filesystem, as built:</p>
+<pre><code>$ df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+<span class="r">/dev/mmcblk0p1  257M  189M  47.9M  80% /</span></code></pre>
+<p>Forty-eight megabytes free. ROS2 — even a trimmed base install — does not fit in that, and neither does anything else I need to add. The board boots, but it has nowhere to grow.</p>
+<p>That is a boring problem with a boring fix, except that trying to fix it surfaced two more, and all three turned out to be the same problem wearing different hats.</p>
+
+<h2>2. The question underneath: where does perception run?</h2>
+<p>Right now the split is:</p>
+<div class="diagram">SERVER (Hetzner, no GPU)                       JETSON (AGL 21)
+  CARLA  →  LiDAR  →  ROS2  →  perception         a WebSocket client
+                                    │             printing to a console
+                                    ▼
+                              rosbridge ─────────────────►</div>
+
+<p>Every interesting thing happens on the server. The Jetson receives finished results and displays them. That works — it's what Weeks 1 through 6 proved — but it means AGL is a thin client, and the word <strong>"ROS-Embedded"</strong> in this project's title isn't yet true of the embedded target. There is no ROS2 on the board at all.</p>
+
+<p>So there are three honest options, and picking one decides the rest of the summer:</p>
+<table>
+  <tr><th>Option</th><th>What it means</th><th>Cost</th></tr>
+  <tr><td><strong>A</strong> — server-side perception</td><td>AGL stays a visualization client. Works today.</td><td>The title needs rewording. "Embedded" would be a stretch.</td></tr>
+  <tr><td><strong>B</strong> — perception on AGL</td><td>The detector runs on the Jetson. What the title promises.</td><td>Needs <code>meta-ros</code>, needs disk, needs a reflash.</td></tr>
+  <tr><td><strong>C</strong> — CARLA moved local</td><td>Simulator on a desk machine, short LAN hop.</td><td>Requires a GPU workstation I don't have.</td></tr>
+</table>
+
+<div class="callout">
+  <p><strong>I'm going with B.</strong> Not only because it's what the project claims, but because it fixes a transport problem I'd been treating as acceptable — and shouldn't have.</p>
+</div>
+
+<h2>3. The transport argument for moving perception on-board</h2>
+<p>rosbridge is the piece that makes the current setup possible: it re-publishes ROS2 topics as WebSocket JSON, which is why a 73-line standard-library client on AGL can subscribe without ROS2 installed anywhere near it. That was the right call for proving the link.</p>
+<p>It is the wrong call for shipping point clouds. Here's the arithmetic on the current stream:</p>
+<table>
+  <tr><th>Stage</th><th>Size per frame</th></tr>
+  <tr><td>Raw LiDAR — ~23,000 points × 16 bytes</td><td>≈ 368 KB binary</td></tr>
+  <tr><td>Base64-encoded into JSON by rosbridge</td><td>≈ 500 KB text</td></tr>
+  <tr><td>At 10 Hz, over an SSH tunnel from Finland</td><td><span class="r">≈ 5 MB/s</span></td></tr>
+</table>
+<p>Five megabytes a second of JSON parsing, to move data that was already binary, so that the receiving end can compute something small. If perception runs on the Jetson instead, the same link carries <strong>3D bounding boxes — a few hundred bytes a frame.</strong> The point cloud never leaves the machine that generated it.</p>
+<p>That's a three-orders-of-magnitude difference, and it's the actual engineering reason to move the detector, independent of what the project title says.</p>
+
+<h2>4. Three blockers that are one blocker</h2>
+<p>Chasing option B turned up three separate-looking obstacles:</p>
+<ul class="clean">
+  <li><strong>Disk.</strong> 47.9 MB free. ROS2 doesn't fit.</li>
+  <li><strong>No graphics stack.</strong> <code>agl-image-minimal</code> ships no Wayland, no Weston, no Qt, no Flutter. It is a headless image — it cannot draw a single pixel. Everything so far has been text on a serial console, which was fine for proving transport and is <em>not</em> fine for a dashboard.</li>
+  <li><strong>Storage migration.</strong> The project is moving from SD card to NVMe, which needs a recovery-mode flash regardless.</li>
+</ul>
+<p>Each of those on its own is a reflash. Together they're <em>the same</em> reflash — one recovery-mode cycle that lands NVMe boot, a graphical AGL image, <code>meta-ros</code>, and makes the Week 6 device-tree fix permanent instead of living on one card's boot partition.</p>
+<div class="callout win">
+  <p><strong>That's the week's real output:</strong> not a fix, but the recognition that three things I was about to do separately are one thing, and doing them separately would mean three flash cycles and three chances to brick the board.</p>
+</div>
+
+<h2>5. The nice surprise: NVMe deletes the Week 6 problem</h2>
+<p>Week 6 was almost entirely spent on a failing 3.3&nbsp;V→1.8&nbsp;V UHS voltage switch on the SD bus, fixed by patching <code>no-1-8-v</code> and <code>nvidia,vmmc-always-on</code> into the <code>mmc@3400000</code> device-tree node.</p>
+<p>NVMe is not an SD card. It's a PCIe device. There is no <code>mmc@3400000</code> in that path, no SDMMC controller, and <strong>no voltage negotiation to fail.</strong> The entire saga that consumed Week 6 becomes irrelevant the moment the root filesystem lives on NVMe.</p>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Worth being clear</span> &nbsp;That does <em>not</em> make Week 6 wasted. The device-tree fix still matters for anyone booting this board from SD, it's still worth upstreaming to <code>meta-tegra</code>, and the debugging discipline is the transferable part. But it's a good reminder that "solve the problem" and "remove the problem" are different moves, and the second one is often cheaper. I spent a week on the first without checking whether the second was available.</p>
+</div>
+<p>The SD card also survives the migration — flashing NVMe doesn't erase it. The two coexist, and the working SD image stays as a fallback if NVMe boot goes badly. That's what makes this reflash a reasonable risk rather than a gamble.</p>
+
+<h2>6. Looking ahead: what actually gets upstreamed</h2>
+<p>With the board sorted, the deliverable is an AGL application, and I spent part of this week reading the code I'd be joining rather than guessing at it.</p>
+<p>AGL's reference instrument cluster is two repositories: <code>meta-agl-cluster-demo</code> (the Yocto layer — around 450 lines across two dozen recipe and config files) and <code>agl-cluster-demo-dashboard</code> (the application itself — roughly 1,900 lines of QML and C++). The layer is mostly thin glue: about thirty lines of recipe per application. The interesting part is the app.</p>
+<p>And there's a detail in it worth stating plainly:</p>
+<div class="callout">
+  <p>The largest single file in the dashboard is <code>ValueSource.qml</code> — 519 lines, inherited from a Qt Company example. It generates <strong>fake animated values.</strong> The speedometer, the tachometer, the fuel gauge: all driven by a sine-wave simulator, because the demo needs to look alive without a car attached.</p>
+</div>
+<p>That is a very clear place for this project to land. Replacing a fake data source with a live one from a real sensor pipeline is a small, well-scoped, obviously-useful contribution — and the dashboard already depends on <code>qtwebsockets</code>, which is exactly the transport rosbridge speaks. The seam is already there.</p>
+<p>One open question I'll be putting to my mentors: the cluster demo is Qt/QML, but newer AGL HMI work has been moving toward Flutter. Building on the wrong one costs weeks, so that's a question to ask before writing code, not after.</p>
+
+<h2 id="next">7. Where it stands, and what's next</h2>
+<p><strong>Status:</strong> the board boots. The full CARLA → LiDAR → ROS2 → perception → rosbridge pipeline works. The gap is that perception is on the wrong machine, and the board can't yet hold the software that would fix that.</p>
+<p>As soon as the NVMe drive is in hand, in order:</p>
+<ul class="clean">
+  <li><strong>The combined reflash</strong> — NVMe boot, a graphical AGL image, <code>meta-ros</code> in the build, and the device-tree fix baked into the machine config rather than dropped on a boot partition.</li>
+  <li><strong>The detector on-board</strong> — build and run the PCL node (voxel filter → RANSAC ground removal → Euclidean clustering) on the Jetson itself, so the point cloud stays local and only detections cross the network.</li>
+  <li><strong>Then the HMI</strong> — the first real AGL application, replacing a fake value source with a live one.</li>
+</ul>
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">The honest scoreboard</span> &nbsp;Six weeks of this project have been plumbing — transport, bring-up, bridges. That work was necessary and some of it was genuinely hard. But the HMI application, which is the part anyone looking at this project will actually <em>see</em>, is currently at zero lines. Naming that now, while there's still time to act on it, seems better than discovering it later.</p>
+</div>
+<p>The lesson from this week is less satisfying than a root cause but probably more useful: I spent six weeks executing without re-examining whether the architecture still matched the goal. Stopping to ask "where is this supposed to run?" cost a few days and changed the plan. It should have happened in Week 2.</p>
+
+<div class="pager">
+  <a href="week6.html">&larr; Week 6</a>
+  <div class="spacer"></div>
+  <a href="week8.html">Week 8 &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 · Automotive Grade Linux · Week 7</p></div>
+</div>
+</body>
+</html>
