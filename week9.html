@@ -47,6 +47,22 @@
 
 <p>Registering the QEMU AGL target as a Flutter device took some plumbing: a small set of helper scripts that push the built app bundle in over SSH, launch the AGL Flutter embedder on the compositor, and tunnel the debug port back so hot reload can attach. The engine version on the laptop has to match the one inside the image exactly or the reload handshake fails. Once that lined up, the payoff was immediate. Change a line, press one key, and the running dashboard updates in about a third of a second. That is the loop the rest of the week was built on.</p>
 
+<p>Reduced to its commands, the loop is short:</p>
+<pre><code><span class="c"># boot AGL in QEMU, forwarding SSH (2222) and the Dart VM debug port (1234)</span>
+qemu-system-x86_64 -enable-kvm -m 2048 -bios OVMF.fd \
+  -drive file=agl-flutter.wic,format=raw,if=virtio \
+  -device virtio-gpu-pci -display gtk,gl=on \
+  -device virtio-net-pci,netdev=n \
+  -netdev user,id=n,hostfwd=tcp::2222-:22,hostfwd=tcp::1234-:1234
+
+<span class="c"># register the running VM as a Flutter target (one time)</span>
+flutter config --enable-custom-devices
+flutter custom-devices add        <span class="c"># ping / install / run / forward-port, all over SSH</span>
+
+<span class="c"># the actual loop: build, push into AGL, launch, attach for hot reload</span>
+flutter run -d agl-qemu
+<span class="c">#   edit lib/main.dart, press  r  ->  live in ~0.3 s</span></code></pre>
+
 <div class="callout note">
   <p><span class="label note" style="margin:0">Why this matters</span> &nbsp;This is not a throwaway convenience. The Jetson deployment next week uses the identical mechanism, just pointed at a real board over the network instead of a virtual one over local ports. Proving the loop on the emulator means the only new variable on the Jetson is the Jetson.</p>
 </div>
@@ -55,6 +71,19 @@
 <p>The application is a bird's-eye LiDAR view. The car sits at the centre, forward is up, and the surrounding returns are plotted as points on a set of range rings out to 50 metres, coloured by distance so nearby objects read warm and far ones read cool. A slow radar sweep rotates over the top so the display looks alive even when a frame is holding. A status line reports how many points are in the current frame and the update rate.</p>
 <p>It has two sources. A <strong>simulated</strong> mode generates a synthetic rotating scan of a corridor with moving obstacles, which is useful as an always-on demo that needs nothing connected. And a <strong>live</strong> mode that subscribes over rosbridge and draws real sensor frames. The interesting engineering is in the live path, because CARLA's LiDAR arrives as a <code>sensor_msgs/PointCloud2</code>, which rosbridge hands over as a base64-encoded blob of binary. The app decodes that blob directly: it reads the x, y, z and intensity floats out of each point by their declared byte offsets, drops the ground and roof returns by height so the top-down view stays clean, and projects the rest to the ground plane. That decoder is what turns the raw pipe from the earlier weeks into an actual picture.</p>
 
+<p>The heart of that decoder, in the app's Dart code:</p>
+<pre><code><span class="c">// rosbridge delivers PointCloud2.data as base64; each point is point_step bytes</span>
+<span class="k">final</span> bytes = base64Decode(msg[<span class="s">'data'</span>]);
+<span class="k">final</span> bd = ByteData.sublistView(bytes);
+<span class="k">for</span> (<span class="k">int</span> k = 0; k &lt; n; k++) {
+  <span class="k">final</span> off = k * step;
+  <span class="k">final</span> x = bd.getFloat32(off + ox, Endian.little);
+  <span class="k">final</span> y = bd.getFloat32(off + oy, Endian.little);
+  <span class="k">final</span> z = bd.getFloat32(off + oz, Endian.little);
+  <span class="k">if</span> (z &lt; minZ || z &gt; maxZ) <span class="k">continue</span>;   <span class="c">// drop the ground and roof returns</span>
+  points.add(project(x, y));                <span class="c">// onto the bird's-eye plane</span>
+}</code></pre>
+
 <h2>3. Feeding it a real CARLA scan</h2>
 <p>To drive the live mode with genuine data rather than the synthetic scene, I needed a CARLA LiDAR recording. There were none, so I made one. On the server, CARLA plus the two-process bridge from Week 5 publishes <code>/carla/lidar</code>, and a rosbag recording captured a stretch of it to a file. That file can now be replayed forever, with no CARLA and no GPU required, which is exactly what a repeatable demo wants.</p>
 
@@ -62,6 +91,19 @@
       →  rosbridge :9090  →  WebSocket + JSON  →  AGL Flutter HMI  (bird's-eye)</div>
 
 <p>Two things had to be worked around to get the bag. CARLA on the GPU-less server renders in software, so its LiDAR only completes about a third of a rotation per second: the raw capture is genuine but slow. Replaying the bag on a loop with a speed multiplier smooths that back up to a livelier rate for the display. And the original bridge script wedged on this server at CARLA's synchronous-mode handshake, so I wrote an asynchronous variant that streams the sensor without that step. With those in place, the bag loops into rosbridge, and the app, pointed at that stream, comes up green and draws the recorded scan.</p>
+
+<p>Recording the bag and replaying it into the app is a handful of commands:</p>
+<pre><code><span class="c"># server: CARLA + the two-process bridge publish /carla/lidar (PointCloud2)</span>
+python lidar_to_sock.py &amp;         <span class="c"># CARLA raycast lidar -> raw bytes on a socket</span>
+python sock_to_pointcloud2.py &amp;   <span class="c"># -> ROS2 /carla/lidar</span>
+ros2 bag record -o carla_lidar /carla/lidar   <span class="c"># Ctrl-C to stop</span>
+
+<span class="c"># replay it forever, sped up to smooth the slow software-render capture</span>
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml   <span class="c"># serves ws://:9090</span>
+ros2 bag play carla_lidar --loop --rate 5
+
+<span class="c"># laptop: forward the app's :9090 to the server's rosbridge, then press "Go LIVE"</span>
+ssh -N -L 9090:localhost:9090 user@server</code></pre>
 
 <figure class="shot">
   <img src="week9-lidar-hmi.png" alt="The AGL Flutter LiDAR dashboard showing a live recorded CARLA point cloud, with a green LIVE badge and a point count in the top bar." style="max-width:100%;height:auto;border-radius:8px;">
