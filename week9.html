@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 9 — The dashboard, finally: a Flutter HMI on AGL showing live LiDAR</title>
+<meta name="description" content="Week 9: building the actual HMI application. A Flutter bird's-eye LiDAR dashboard running on AGL, a hot-reload dev loop into a QEMU AGL target, and real recorded CARLA point clouds replayed into it over rosbridge. It renders live data, but the app overflows the screen, which is next week's first job.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink active" href="week9.html">Week 9</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 9 &middot; Coding Period</div>
+  <h1>The dashboard, finally</h1>
+  <p class="sub">Every week so far has ended with the same shape of result: a live sensor stream arriving somewhere, read by a small text client. This week the client became the real thing. A Flutter HMI application, running on AGL, drawing a bird's-eye radar view of a real recorded CARLA LiDAR scan.</p>
+</div></header>
+
+<div class="wrap">
+
+<p>The project's opening diagram has always ended in the same box: an AGL dashboard application drawing what the car sees. Weeks 1 through 8 built and proved everything that leads up to that box. The simulator, the perception, the bridge, the transport, and finally the move onto real Jetson hardware. But the box itself, the HMI, stayed a stand-in. Right up to last week the AGL side of the pipeline was a 73-line standard-library WebSocket client that printed numbers to a terminal. It proved the data arrived. It did not draw anything.</p>
+
+<p>This week that box got built.</p>
+
+<h2>1. A dev loop for the dashboard</h2>
+<p>The way you build a car HMI is not by rebuilding the whole operating system image every time you change a colour. The workflow my mentor pointed at is the one real embedded UI teams use: write the app in an editor on your laptop, and push it live onto the running target, updating in place while it runs. Flutter calls this hot reload.</p>
+<p>The catch is that the target is AGL, and I did not want app iteration to be blocked on the Jetson being on my desk and flashed. So I set up the exact same loop against AGL running in QEMU on the laptop, using <strong>the same AGL release the Jetson runs</strong> (unagi 21.0.1, qemux86-64), with the same Flutter engine version baked into the image. What works here works there.</p>
+
+<div class="diagram">edit lib/main.dart   →   flutter run -d agl-qemu   →   builds + pushes into AGL
+    │                                                        │
+    │                                          flutter-auto renders on the
+    │                                          AGL Wayland compositor
+    └──────────  press r  ◄────────────────  live update in ~0.3 s</div>
+
+<p>Registering the QEMU AGL target as a Flutter device took some plumbing: a small set of helper scripts that push the built app bundle in over SSH, launch the AGL Flutter embedder on the compositor, and tunnel the debug port back so hot reload can attach. The engine version on the laptop has to match the one inside the image exactly or the reload handshake fails. Once that lined up, the payoff was immediate. Change a line, press one key, and the running dashboard updates in about a third of a second. That is the loop the rest of the week was built on.</p>
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">Why this matters</span> &nbsp;This is not a throwaway convenience. The Jetson deployment next week uses the identical mechanism, just pointed at a real board over the network instead of a virtual one over local ports. Proving the loop on the emulator means the only new variable on the Jetson is the Jetson.</p>
+</div>
+
+<h2>2. What the app draws</h2>
+<p>The application is a bird's-eye LiDAR view. The car sits at the centre, forward is up, and the surrounding returns are plotted as points on a set of range rings out to 50 metres, coloured by distance so nearby objects read warm and far ones read cool. A slow radar sweep rotates over the top so the display looks alive even when a frame is holding. A status line reports how many points are in the current frame and the update rate.</p>
+<p>It has two sources. A <strong>simulated</strong> mode generates a synthetic rotating scan of a corridor with moving obstacles, which is useful as an always-on demo that needs nothing connected. And a <strong>live</strong> mode that subscribes over rosbridge and draws real sensor frames. The interesting engineering is in the live path, because CARLA's LiDAR arrives as a <code>sensor_msgs/PointCloud2</code>, which rosbridge hands over as a base64-encoded blob of binary. The app decodes that blob directly: it reads the x, y, z and intensity floats out of each point by their declared byte offsets, drops the ground and roof returns by height so the top-down view stays clean, and projects the rest to the ground plane. That decoder is what turns the raw pipe from the earlier weeks into an actual picture.</p>
+
+<h2>3. Feeding it a real CARLA scan</h2>
+<p>To drive the live mode with genuine data rather than the synthetic scene, I needed a CARLA LiDAR recording. There were none, so I made one. On the server, CARLA plus the two-process bridge from Week 5 publishes <code>/carla/lidar</code>, and a rosbag recording captured a stretch of it to a file. That file can now be replayed forever, with no CARLA and no GPU required, which is exactly what a repeatable demo wants.</p>
+
+<div class="diagram">recorded CARLA bag  →  ros2 bag play (looping)  →  /carla/lidar  (PointCloud2)
+      →  rosbridge :9090  →  WebSocket + JSON  →  AGL Flutter HMI  (bird's-eye)</div>
+
+<p>Two things had to be worked around to get the bag. CARLA on the GPU-less server renders in software, so its LiDAR only completes about a third of a rotation per second: the raw capture is genuine but slow. Replaying the bag on a loop with a speed multiplier smooths that back up to a livelier rate for the display. And the original bridge script wedged on this server at CARLA's synchronous-mode handshake, so I wrote an asynchronous variant that streams the sensor without that step. With those in place, the bag loops into rosbridge, and the app, pointed at that stream, comes up green and draws the recorded scan.</p>
+
+<figure class="shot">
+  <img src="week9-lidar-hmi.png" alt="The AGL Flutter LiDAR dashboard showing a live recorded CARLA point cloud, with a green LIVE badge and a point count in the top bar." style="max-width:100%;height:auto;border-radius:8px;">
+  <figcaption>The HMI in <strong>LIVE</strong> mode (top-right badge, green) drawing a real recorded CARLA point cloud, 1487 points, replayed through rosbridge. This is the first time the pipeline's final box has drawn real sensor data instead of printing it.</figcaption>
+</figure>
+
+<h2>4. The honest problem: it overflows</h2>
+<p>The application renders, it goes live, and it draws real data. What it does not yet do is fit on the screen. As the screenshot shows, the radar's centre and the bottom control bar run off the edge of the display.</p>
+<p>The cause is specific. AGL's compositor forces the application to full screen at a fixed 1920 by 1080, and it ignores requests from the app to run at any other size. On the laptop, once the window's title bars are accounted for, the bottom of that 1080-tall surface is pushed past the edge and clipped. The content is all being drawn correctly, it is simply drawn onto a canvas taller than the visible area. Scaling the whole emulator display to fit the screen makes the full picture visible, but that is a workaround at the display layer, not a fix in the app.</p>
+
+<div class="callout warn">
+  <p><span class="label note" style="margin:0">Stand and deliver</span> &nbsp;This is the current honest state. The hard parts are done: the dev loop works, the PointCloud2 decoder works, and real CARLA data reaches the dashboard and renders. The remaining defect is a layout and display-fit problem, not a pipeline problem. It is annoying, it is visible, and it is next week's first job.</p>
+</div>
+
+<h2 id="next">5. Where it stands, and what's next</h2>
+<p><strong>Status:</strong> the HMI application exists. It runs on AGL, it hot-reloads for fast iteration, and it draws a real recorded CARLA LiDAR scan in a live bird's-eye view over the same rosbridge transport the whole project is built on. The pipeline's final box is no longer a placeholder.</p>
+<ul class="clean">
+  <li><strong>Stop the overflow.</strong> Make the app lay out correctly within the compositor's fixed full-screen surface, so the whole radar and its controls are always visible without scaling tricks at the display layer.</li>
+  <li><strong>Deploy on the Jetson.</strong> Move this exact dev loop and application off the emulator and onto the real Orin Nano board, the same way Week 8 moved the transport leg onto real silicon. The app is version-matched to the board's AGL image on purpose, so this is a change of address, not a rewrite.</li>
+</ul>
+<p>Week 8 named the HMI application as the largest open piece of the whole project. This week it stopped being open. What is left is to make it sit properly on the screen and to run it where it is meant to run.</p>
+
+<div class="pager">
+  <a href="week8.html">&larr; Week 8</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 9</p></div>
+</div>
+</body>
+</html>

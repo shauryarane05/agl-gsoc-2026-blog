@@ -20,6 +20,7 @@
   <a class="navlink" href="week6.html">Week 6</a>
   <a class="navlink" href="week7.html">Week 7</a>
   <a class="navlink active" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
 </div></nav>
 
 <header class="hero"><div class="inner">
@@ -55,15 +56,7 @@
 
 <p>That is the transport leg of the ideal architecture from the project's opening diagram — workstation to real target, over a real LAN — running on real silicon for the first time. Week 6 closed by naming this as the payoff. This is it.</p>
 
-<h2>3. Being clear about what this is not</h2>
-<p>The board is receiving the point cloud. It is not yet doing anything with it, and it is not yet ROS-native.</p>
-<p>AGL is still a thin client here: it subscribes through rosbridge over WebSocket JSON rather than speaking ROS2 directly, and the perception work — voxel filter, RANSAC ground removal, Euclidean clustering — still runs back on the server. The project title says <em>ROS-Embedded</em>, and that isn't true of the target yet.</p>
-<div class="callout">
-  <p>This matters beyond terminology, for the reason Week 7 laid out. rosbridge base64-encodes point clouds into JSON: roughly 368&nbsp;KB of binary per frame becomes about 500&nbsp;KB of text, at 10&nbsp;Hz, across the network. That's a fine price for proving a link works and a bad foundation for a dashboard. Running the detector <em>on</em> the board means only 3D bounding boxes — a few hundred bytes a frame — need to cross the wire.</p>
-</div>
-<p>The NVMe migration is what makes fixing that possible. It wasn't the goal; it was the prerequisite.</p>
-
-<h2 id="next">4. Where it stands, and what's next</h2>
+<h2 id="next">3. Where it stands, and what's next</h2>
 <p><strong>Status:</strong> AGL 21 boots from NVMe on a Jetson Orin Nano with room to grow, and receives a live CARLA LiDAR stream over a real network. The hardware arc that began in Week 3 with a Raspberry Pi that wouldn't boot is closed.</p>
 <ul class="clean">
   <li><strong>ROS2 on the target</strong> — get <code>meta-ros</code> into the image so the board speaks ROS2 natively instead of through a WebSocket shim.</li>
