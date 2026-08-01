@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 10: On the board, a Flutter HMI running on the real Jetson Orin Nano</title>
+<meta name="description" content="Week 10: moving the AGL Flutter dashboard off the emulator and onto the real Jetson Orin Nano. The app was the easy part. Getting the board's compositor to draw at all meant fixing NVIDIA kernel mode-setting, and getting the app on screen meant learning how AGL's shell hands out the display. It ends with the dashboard running full screen on real hardware, hot-reloading over a cable.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink active" href="week10.html">Week 10</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 10 &middot; Coding Period</div>
+  <h1>On the board</h1>
+  <p class="sub">Week 9 ended with two jobs: make the dashboard fit the screen, and move it onto the real Orin Nano. This week is the move. And just like the transport leg back in Week 8, the app itself was never the hard part. Getting the board into a state where it could draw a single pixel was.</p>
+</div></header>
+
+<div class="wrap">
+
+<p>The dashboard from last week ran on AGL inside QEMU on my laptop. That was deliberate. The whole reason for building the hot-reload loop against an emulator first was so that this week would be a change of address and nothing more. Same Flutter SDK, same engine version, same way of pushing the app onto the target. The plan was that the only new variable on the Jetson would be the Jetson.</p>
+
+<p>That plan held. The dev loop moved across almost untouched. What did not move across for free was the board underneath it, and most of the week went into three problems that had nothing to do with the app and everything to do with making a real display light up.</p>
+
+<figure class="shot">
+  <img src="week10-jetson.jpg" alt="The NVIDIA Jetson Orin Nano developer kit on the desk, connected by a direct Ethernet cable to the laptop, a serial console adapter, and a DisplayPort cable to a monitor." style="max-width:100%;height:auto;border-radius:8px;">
+  <figcaption>The target: an NVIDIA Jetson Orin Nano developer kit, booting the AGL image off its NVMe drive, wired straight to the laptop over Ethernet and to a monitor over DisplayPort. This is the box the whole project has been aiming the pipeline at.</figcaption>
+</figure>
+
+<h2>1. The same loop, a new address</h2>
+<p>The loop is the one from Week 9. A Flutter custom device, a few helper scripts that push the built app bundle onto the target over SSH, launch the AGL Flutter embedder on the compositor, and tunnel the debug port back so hot reload can attach. On the emulator that target was a virtual machine on local ports. On the Jetson it is a real board on the other end of a cable.</p>
+<p>I connected the laptop straight to the board with a single Ethernet cable, gave each end a fixed address, dropped my SSH key onto the board so the push scripts authenticate without a password, and pointed the device at the board. The engine version on the laptop already matches the one inside the image, because the image was built that way on purpose. So once the board was reachable, <code>flutter run -d agl-jetson-orin</code> behaved exactly as it did against QEMU.</p>
+
+<div class="diagram">edit lib/main.dart   →   flutter run -d agl-jetson-orin   →   push over Ethernet
+    │                                                            │
+    │                                        flutter-auto renders on the board's
+    │                                        AGL Wayland compositor, on the panel
+    └──────────  press r  ◄──────────────────  live update in ~0.3 s</div>
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">Why this matters</span> &nbsp;None of the plumbing changed between the emulator and the board. The scripts, the engine, the commands are identical, retargeted from local ports to a cable. That is the payoff of having proven the loop on QEMU first: the loop was never in question this week.</p>
+</div>
+
+<h2>2. The board would not draw</h2>
+<p>The first real wall was that the display server itself refused to start. Booting the flashed image and logging in over the serial console, the compositor service was dead. It started, autologged the driver user, and then its main process exited in about 38 milliseconds with nothing useful in the journal. The monitor showed the vendor boot logo and then went black the moment Linux took over.</p>
+<p>Running the compositor by hand printed the real message: <code>no drm device found</code>, followed by a failure to create the graphics backend. Looking closer, the GPU device node existed, but it had no display connectors attached to it at all. That black-after-the-logo behaviour is the tell: the bootloader was driving the panel, and once the kernel took charge nothing was.</p>
+<p>The cause was that kernel mode-setting was switched off. The NVIDIA display driver and its mode-setting module were present in the image, but they were not being loaded with mode-setting enabled, so the GPU came up render-only, with no outputs for the compositor to use. Loading them with mode-setting on immediately produced a connected DisplayPort output. The compositor then came up in full, read the monitor's supported modes off its EDID, enabled the output, and reported itself ready. Making that stick was two small configuration files so the modules always load the right way at boot.</p>
+
+<pre><code><span class="c"># the GPU came up render-only: a card node existed, but with zero connectors</span>
+<span class="c"># load the display driver WITH kernel mode-setting on</span>
+modprobe nvidia-modeset
+modprobe nvidia-drm modeset=1        <span class="c"># a connected DP output now appears</span>
+
+<span class="c"># make it permanent, so every boot loads it correctly</span>
+echo nvidia-drm &gt; /etc/modules-load.d/nvidia-drm.conf
+echo "options nvidia-drm modeset=1" &gt; /etc/modprobe.d/nvidia-drm.conf</code></pre>
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">Not a rebuild</span> &nbsp;The entire graphics stack was already inside the image: the compositor, the driver, the userspace libraries. This was a runtime setting that was simply off, not a missing piece and not a wrong image. Worth remembering before reaching for a full rebuild to fix a boot problem.</p>
+</div>
+
+<h2>3. A running compositor, and still a black screen</h2>
+<p>With the compositor alive, the app deployed cleanly. The debug launch reported in, the Dart runtime came up and announced its service port, and the screen stayed black. The app was running and drawing to something the panel could not see.</p>
+<p>AGL's compositor holds a black placeholder over the screen until a client claims the background role through the compositor's shell protocol. My app had come up as an ordinary window, which this compositor does not put on screen by default. The fix was to ship a small configuration file alongside the app bundle that asks for the background role at full screen. With that in place the placeholder lifted and the dashboard filled the panel.</p>
+
+<pre><code><span class="c"># shipped with the app bundle; asks the compositor for the background role</span>
+[view]
+window_type = <span class="s">"BG"</span>
+fullscreen = <span class="k">true</span></code></pre>
+
+<p>There is one sharp edge here that cost me some time. That background role can be claimed only once per compositor session. The image ships a sample application that grabs the role at boot, so putting my dashboard on screen meant retiring the sample and restarting the compositor so the role was free again. It is invisible until it bites, which is exactly why it is written down.</p>
+
+<h2>4. It renders</h2>
+<p>With mode-setting on, the compositor up, and the background role claimed, the dashboard came up full screen on a real monitor, driven by the real Orin Nano GPU.</p>
+
+<figure class="shot">
+  <img src="week10-hmi-screen.jpg" alt="The AGL Flutter LiDAR dashboard running full screen on a monitor connected to the Jetson Orin Nano." style="max-width:100%;height:auto;border-radius:8px;">
+  <figcaption>The dashboard running on the real board, full screen on the monitor. The same application from Week 9, the same bird's-eye LiDAR view, now drawn by the Jetson's own GPU through the AGL compositor rather than by an emulator.</figcaption>
+</figure>
+
+<p>And the part that made all of the earlier groundwork worth it survived the move: the hot-reload loop works on real silicon exactly as it did on the emulator. Edit a line in the editor on the laptop, press one key, and the running dashboard on the board updates in about a third of a second, without restarting.</p>
+
+<figure class="shot">
+  <img src="week10-hotreload.png" alt="The laptop terminal running flutter run against the Jetson, showing a hot reload completing in a fraction of a second." style="max-width:100%;height:auto;border-radius:8px;">
+  <figcaption>The loop on hardware: <code>flutter run -d agl-jetson-orin</code> attached to the board over the cable. The app synced to the device, the Dart VM service came up, and the hot-reload key menu is ready. From here, editing a line on the laptop and pressing <code>r</code> updates the running dashboard on the board in a fraction of a second.</figcaption>
+</figure>
+
+<h2 id="next">5. Where it stands, and what's next</h2>
+<p><strong>Status:</strong> the HMI is on the target. It runs on the real Jetson Orin Nano, full screen, drawing on a real display through the AGL compositor, and it hot-reloads over a direct cable to the laptop. The final box of the project's diagram is now running where it is meant to run.</p>
+<ul class="clean">
+  <li><strong>Feed it live data on the board.</strong> On the Jetson the dashboard currently runs its always-on simulated mode. The next step is pointing it at the recorded CARLA stream over the same rosbridge transport, so the board draws real sensor frames, the way it already does on the emulator.</li>
+  <li><strong>Make it start on its own.</strong> Replace the sample application with the dashboard as the client that claims the screen at boot, so powering the board on comes straight up into the HMI with no manual steps.</li>
+  <li><strong>Fold the bring-up back into the build.</strong> The mode-setting fix and the board configuration were done by hand on the running system. Moving them into the image build makes a fresh flash reproducible, and makes the Orin Nano support something that could be contributed back rather than kept as local notes.</li>
+</ul>
+<p>Week 8 moved the transport onto real silicon. Week 9 built the dashboard. This week put the two together: the actual application, running on the actual board. What is left is to make it come up on its own and to feed it the live stream on the target, and the project is standing on its own hardware.</p>
+
+<div class="pager">
+  <a href="week9.html">&larr; Week 9</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 10</p></div>
+</div>
+</body>
+</html>
