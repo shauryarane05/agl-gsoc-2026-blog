@@ -99,7 +99,44 @@ fullscreen = <span class="k">true</span></code></pre>
   <figcaption>The loop on hardware: <code>flutter run -d agl-jetson-orin</code> attached to the board over the cable. The app synced to the device, the Dart VM service came up, and the hot-reload key menu is ready. From here, editing a line on the laptop and pressing <code>r</code> updates the running dashboard on the board in a fraction of a second.</figcaption>
 </figure>
 
-<h2 id="next">5. Where it stands, and what's next</h2>
+<h2>5. Reproduce it</h2>
+<p>The whole bring-up, reduced to the commands that matter, in order. Everything below is run once to take a freshly flashed board to a hot-reloading dashboard.</p>
+
+<p><strong>Make the compositor draw.</strong> On the board, over the serial console, as root:</p>
+<pre><code><span class="c"># the GPU came up render-only. load the display driver WITH kernel mode-setting,</span>
+<span class="c"># then make it permanent so every boot loads it correctly.</span>
+modprobe nvidia-modeset
+modprobe nvidia-drm modeset=1
+echo nvidia-drm &gt; /etc/modules-load.d/nvidia-drm.conf
+echo "options nvidia-drm modeset=1" &gt; /etc/modprobe.d/nvidia-drm.conf
+reboot                          <span class="c"># agl-compositor now starts on its own and drives the panel</span></code></pre>
+
+<p><strong>Put the laptop and the board on one cable.</strong> A direct Ethernet link, a fixed address on each end, and the laptop's key on the board so the push scripts authenticate:</p>
+<pre><code><span class="c"># laptop</span>
+sudo ip addr add 192.168.50.1/24 dev &lt;laptop-eth&gt;
+<span class="c"># board (serial console)</span>
+ip addr add 192.168.50.2/24 dev &lt;board-eth&gt;
+<span class="c"># laptop -> board key auth for the custom-device push scripts</span>
+ssh-copy-id agl-driver@192.168.50.2</code></pre>
+
+<p><strong>Register the board as a Flutter device and run.</strong> The same custom-device loop from Week 9, pointed at the board:</p>
+<pre><code>flutter config --enable-custom-devices
+flutter custom-devices add       <span class="c"># ping / install / run / forward-port, all over SSH to the board</span>
+
+flutter run -d agl-jetson-orin   <span class="c"># build, push onto the board, launch, attach for hot reload</span>
+<span class="c">#   edit lib/main.dart, press  r  ->  live on the board in ~0.3 s</span></code></pre>
+
+<p><strong>Claim the screen.</strong> Ship this file with the app bundle so the app asks the compositor for the full-screen background role, and free that role first (it can be claimed only once per compositor session):</p>
+<pre><code><span class="c"># config.toml, shipped alongside the app bundle</span>
+[view]
+window_type = <span class="s">"BG"</span>
+fullscreen = <span class="k">true</span>
+
+<span class="c"># retire the image's sample app and restart the compositor so the role is free</span>
+systemctl disable --now flutter-samples-material-3-demo
+systemctl restart agl-compositor</code></pre>
+
+<h2 id="next">6. Where it stands, and what's next</h2>
 <p><strong>Status:</strong> the HMI is on the target. It runs on the real Jetson Orin Nano, full screen, drawing on a real display through the AGL compositor, and it hot-reloads over a direct cable to the laptop. The final box of the project's diagram is now running where it is meant to run.</p>
 <ul class="clean">
   <li><strong>Feed it live data on the board.</strong> On the Jetson the dashboard currently runs its always-on simulated mode. The next step is pointing it at the recorded CARLA stream over the same rosbridge transport, so the board draws real sensor frames, the way it already does on the emulator.</li>
