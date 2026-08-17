@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 12: Packaging the dashboard the AGL way, and the first patch review</title>
+<meta name="description" content="Week 12: turning the LiDAR dashboard from a laptop demo into something that packages the AGL way and can go upstream. A Jetson Orin workspace config, the recipe rebuilt on inherit flutter-app agl-app, a recorded rosbag that makes the demo run fully offline, and the first round of mentor review on the BitBake recipe.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink" href="week10.html">Week 10</a>
+  <a class="navlink" href="week11.html">Week 11</a>
+  <a class="navlink active" href="week12.html">Week 12</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 12 &middot; Coding Period</div>
+  <h1>Making it upstreamable</h1>
+  <p class="sub">The dashboard worked, but it was still a laptop demo held together by a hand-written service file. This week was about turning it into something that packages the way AGL packages things, ships a demo anyone can run offline, and stands up to a real maintainer review. It got that review, and it passed.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">TL;DR</span> &nbsp;I wrote a Jetson Orin workspace config so the app deploys with AGL's own scripts, rebuilt the recipe on <code>inherit flutter-app agl-app</code> instead of a hand-rolled systemd unit, and recorded a CARLA LiDAR rosbag so the whole demo runs on the board with no simulator and no network. I published the app under Apache-2.0, build-verified the recipe on the Jetson image, and put it in front of my mentors. Rob and Jan-Simon reviewed the recipe, it passed, and I applied their two notes: keep the <code>SRCREV</code> pinned for Gerrit with a <code>localdev</code> auto-latest override, and add a real README. Next week the two patches go up to Gerrit.</p>
+</div>
+
+<h2>1. A workspace config for the Jetson</h2>
+<p>AGL already has a way to push a Flutter app onto a target: a per-target JSON config that the workspace-automation script reads. The tree ships configs for qemu and the Raspberry Pi. I wrote the equivalent for the Jetson Orin Nano, following the same schema rather than inventing anything. It is a <code>remote</code> / custom-device config: it names the board over mDNS, and carries the install, run, and port-forward hooks so <code>flutter run</code> drives the app onto the board using AGL's existing tooling.</p>
+<p>The one deliberate choice: the hostname stays a generic <code>.local</code> mDNS name, not my board's IP, because this file is meant to be shared upstream and a personal address does not belong in it.</p>
+
+<h2>2. The recipe, done the AGL way</h2>
+<p>My earlier recipe hand-wrote a systemd unit to launch the app. My mentor pointed out that AGL has a template for exactly this, and he was right. I rebuilt the recipe on <code>inherit flutter-app agl-app</code>, which pulls in the <code>agl-app-flutter</code> service template so I do not maintain the launch plumbing at all.</p>
+<p>The one rule that makes it work: the app id the template launches has to match the bundle name the Flutter build installs. So <code>AGL_APP_ID</code> and <code>PUBSPEC_APPNAME</code> are both <code>agl_hmi_demo</code>. I cross-checked the whole shape against the in-tree <code>flutter-ros-demo</code> recipe, which is the closest existing example of a Flutter plus ROS 2 demo, so I was following the house style instead of guessing.</p>
+
+<pre><code><span class="c"># the two lines that replace a hand-written service file</span>
+inherit flutter-app agl-app
+
+PUBSPEC_APPNAME = <span class="s">"agl_hmi_demo"</span>
+AGL_APP_TEMPLATE = <span class="s">"agl-app-flutter"</span>
+AGL_APP_ID = <span class="s">"agl_hmi_demo"</span>   <span class="c"># must equal PUBSPEC_APPNAME</span></code></pre>
+
+<h2>3. Shipping the demo so it runs offline</h2>
+<p>Up to now the dashboard needed a live CARLA at the other end. That is a lot to ask of anyone who just wants to see the app do something. So I recorded a short CARLA LiDAR run into a rosbag and shipped it inside the app, together with a small helper script. The recipe installs the bag under <code>/usr/share</code> and the helper as a command on the path.</p>
+<p>The helper starts a local rosbridge server on port 9090 and loop-plays the bag onto <code>/carla/lidar</code>. The app connects to that local rosbridge exactly as it would to a remote one. No CARLA, no GPU, no network.</p>
+
+<div class="diagram">recorded CARLA LiDAR bag  (ships inside the app)
+   │
+   ▼   loop-played by the helper script
+local rosbridge on :9090   →   /carla/lidar   (sensor_msgs/PointCloud2)
+   │
+   ▼
+the same dashboard, now drawing points with nothing else running</div>
+
+<pre><code><span class="c"># the recipe installs these two things onto the image</span>
+<span class="c">#   the bag:    /usr/share/agl-lidar-hmi/rosbag/carla_lidar/</span>
+<span class="c">#   the helper: /usr/bin/agl-lidar-hmi-demo.sh</span>
+
+<span class="c"># on the board, the whole demo is one command:</span>
+agl-lidar-hmi-demo.sh
+<span class="c">#   1. launches rosbridge_server on :9090</span>
+<span class="c">#   2. loop-plays the shipped bag onto /carla/lidar</span>
+<span class="c">#   then start the app and it connects to ws://127.0.0.1:9090</span></code></pre>
+
+<h2>4. Published, and build-verified</h2>
+<p>I put the app on its own public repository under the Apache-2.0 license, and cleaned the recipe down to upstream style, dropping the teaching comments and anything the build did not need. I built the recipe against the Jetson image several times over and confirmed the artifacts actually land where the recipe says: the bag and its metadata under <code>/usr/share</code>, and the demo helper under <code>/usr/bin</code>. One real bug surfaced this way, an install step that tried to copy a file into a directory it had not created yet, and it was caught by the build before it ever reached a reviewer. That is the point of building it first.</p>
+
+<h2>5. The first review round</h2>
+<p>With the recipe clean and building, I asked my mentors to look at it. Rob reviewed it, said it looked good and was ready to submit, and left two suggestions: use <code>${AUTOREV}</code> in <code>SRCREV</code> so development tracks the latest commit automatically, and add a README so people can tell what the repository is. Jan-Simon added an important refinement on the first point: bare <code>${AUTOREV}</code> is fine for local development, but a patch going into Gerrit should pin an exact <code>SRCREV</code> so the build is reproducible.</p>
+<p>Both notes are now applied. The recipe pins a real commit, and adds a <code>localdev</code> override that only uses auto-latest during local development, so I keep Rob's convenience without giving up Jan-Simon's reproducibility.</p>
+
+<pre><code><span class="c"># pinned for Gerrit, auto-latest only while developing locally</span>
+SRCREV = <span class="s">"caebfd5...b6faa"</span>
+SRCREV:localdev = <span class="s">"${AUTOREV}"</span></code></pre>
+
+<p>And the README now describes the app, the pipeline, and how to run the offline demo, replacing the empty template text that was there before.</p>
+
+<div class="callout win">
+  <p><span class="label win" style="margin:0">It passed</span> &nbsp;Two maintainers reviewed the recipe and both said it was ready to submit. That is the first time a piece of this project has been signed off against the actual AGL contribution bar rather than my own judgement of it.</p>
+</div>
+
+<h2 id="next">6. Where it stands, and what's next</h2>
+<p><strong>Status:</strong> the dashboard is now packaged the AGL way. There is a Jetson workspace config, a recipe built on the standard app template, a demo that runs offline from a shipped rosbag, a published Apache-2.0 repository, and a recipe that two maintainers have reviewed and cleared.</p>
+<ul class="clean">
+  <li><strong>Push the README and repin.</strong> The README is a new commit, so I push it, then update the pinned <code>SRCREV</code> to that new commit so the pin matches a repository state that includes the README.</li>
+  <li><strong>Submit the patches.</strong> Two work-in-progress patches go up to Gerrit: the workspace config, and the recipe.</li>
+  <li><strong>Iterate on review.</strong> A first submission is a starting point, not an ending. Whatever the Gerrit review turns up is next.</li>
+</ul>
+<p>Week 11 made the source end of the pipeline real. This week made the delivery end real: the app no longer lives in my build tree alone, it lives in a repository and a recipe that the project's own maintainers have looked at and approved.</p>
+
+<div class="pager">
+  <a href="week11.html">&larr; Week 11</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 12</p></div>
+</div>
+</body>
+</html>
