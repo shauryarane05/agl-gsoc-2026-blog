@@ -76,7 +76,7 @@ agl-lidar-hmi-demo.sh
 <span class="c">#   then start the app and it connects to ws://127.0.0.1:9090</span></code></pre>
 
 <h2>4. Published, and build-verified</h2>
-<p>I put the app on its own public repository under the Apache-2.0 license, and cleaned the recipe down to upstream style, dropping the teaching comments and anything the build did not need. I built the recipe against the Jetson image several times over and confirmed the artifacts actually land where the recipe says: the bag and its metadata under <code>/usr/share</code>, and the demo helper under <code>/usr/bin</code>. One real bug surfaced this way, an install step that tried to copy a file into a directory it had not created yet, and it was caught by the build before it ever reached a reviewer. That is the point of building it first.</p>
+<p>I put the app on its own <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">public repository</a> under the Apache-2.0 license, and cleaned the recipe down to upstream style, dropping the teaching comments and anything the build did not need. I built the recipe against the Jetson image several times over and confirmed the artifacts actually land where the recipe says: the bag and its metadata under <code>/usr/share</code>, and the demo helper under <code>/usr/bin</code>. One real bug surfaced this way, an install step that tried to copy a file into a directory it had not created yet, and it was caught by the build before it ever reached a reviewer. That is the point of building it first.</p>
 
 <h2>5. The first review round</h2>
 <p>With the recipe clean and building, I asked my mentors to look at it. Rob reviewed it, said it looked good and was ready to submit, and left two suggestions: use <code>${AUTOREV}</code> in <code>SRCREV</code> so development tracks the latest commit automatically, and add a README so people can tell what the repository is. Jan-Simon added an important refinement on the first point: bare <code>${AUTOREV}</code> is fine for local development, but a patch going into Gerrit should pin an exact <code>SRCREV</code> so the build is reproducible.</p>
@@ -100,6 +100,12 @@ SRCREV:localdev = <span class="s">"${AUTOREV}"</span></code></pre>
   <li><strong>Iterate on review.</strong> A first submission is a starting point, not an ending. Whatever the Gerrit review turns up is next.</li>
 </ul>
 <p>Week 11 made the source end of the pipeline real. This week made the delivery end real: the app no longer lives in my build tree alone, it lives in a repository and a recipe that the project's own maintainers have looked at and approved.</p>
+
+<h2>Links</h2>
+<ul class="clean">
+  <li><strong>Application repository:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>. The Flutter app, the recorded rosbag, and the offline demo helper, under Apache-2.0.</li>
+  <li><strong>Gerrit patches:</strong> the workspace config and the BitBake recipe go up for review this coming week. I will link them here once they are published.</li>
+</ul>
 
 <div class="pager">
   <a href="week11.html">&larr; Week 11</a>
