@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 13: From points to objects, the perception step that finds the cars</title>
+<meta name="description" content="Week 13: the perception step. A PCL node segments the ground out of the CARLA LiDAR cloud and clusters what is left into 3D bounding boxes, turning a wall of points into a handful of detected objects. Rendered as a bird's-eye animation, run fully offline from the recorded bag.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink" href="week10.html">Week 10</a>
+  <a class="navlink" href="week11.html">Week 11</a>
+  <a class="navlink" href="week12.html">Week 12</a>
+  <a class="navlink active" href="week13.html">Week 13</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 13 &middot; Coding Period</div>
+  <h1>From points to objects</h1>
+  <p class="sub">Every week so far the pipeline has carried a cloud of raw points. A dashboard can draw that cloud, but it does not understand it. This week is the step that does: take the wall of LiDAR points, throw away the ground, and group what is left into a handful of discrete objects with boxes around them. Perception.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">TL;DR</span> &nbsp;I ran a PCL perception node over the recorded CARLA LiDAR stream. It downsamples the cloud, segments out the ground plane with RANSAC, and clusters the remaining points into 3D bounding boxes, finding between nine and sixteen objects per frame. I rendered its output as a top-down bird's-eye view, so the detections are visible as green boxes around the ego vehicle. It runs fully offline from the recorded bag, on a server with no display, no live simulator, and no GPU. One honest note at the end about what a box does and does not mean.</p>
+</div>
+
+<h2>1. What perception means here</h2>
+<p>A LiDAR sensor returns tens of thousands of points per spin. That is not yet information a car can act on. Perception is the step that turns those points into objects: instead of twenty-two thousand distances, a short list that says there is something roughly car-shaped here, and something else there. That list, with a box around each thing, is what a planner or a dashboard actually consumes.</p>
+<p>The classic way to do this without any machine learning is geometric, and it is what runs here: remove the ground so objects stop being glued to it, then group the leftover points by proximity. Points that sit close together belong to the same thing. Each group becomes one detection.</p>
+
+<figure class="shot">
+  <img src="week13-perception.gif" alt="A looping bird's-eye animation of the CARLA LiDAR perception output. Grey points form concentric LiDAR rings around a red ego-vehicle marker at the centre. Green rectangles mark detected object clusters, changing frame to frame as the recorded scene plays." style="max-width:100%;height:auto;border-radius:8px;">
+  <figcaption>The perception output, looping. Grey points are the raw CARLA LiDAR cloud; the red triangle at the origin is the ego vehicle carrying the sensor; each green box is one detected object cluster. Thirteen frames of the recorded bag, played in order. The object count in the title changes frame to frame as things come in and out of range.</figcaption>
+</figure>
+
+<h2>2. The pipeline that finds the boxes</h2>
+<p>The detector is a small C++ node built on PCL, the Point Cloud Library. It subscribes to the raw <code>/carla/lidar</code> cloud and, for every frame, runs a fixed sequence of filters. Each stage exists to make the next one cheaper or cleaner.</p>
+
+<pre><code><span class="c">// the perception pipeline, one frame at a time</span>
+VoxelGrid          leaf 0.2 m      <span class="c">// thin ~22k points down to a manageable set</span>
+PassThrough  z in [-2.0, 3.0] m    <span class="c">// keep only the slab around the road</span>
+RANSAC plane   dist 0.3 m          <span class="c">// find the ground and remove it</span>
+Euclidean clustering               <span class="c">// group the rest by proximity:</span>
+   tolerance 0.6 m, min 15 pts     <span class="c">//   near points = the same object</span>
+<span class="c">// each surviving cluster -> an axis-aligned 3D bounding box</span></code></pre>
+
+<p>The two stages that matter most are the ground removal and the clustering. Removing the ground is what lets clustering work at all: while every point is connected through the road surface, proximity grouping just returns one giant blob. RANSAC fits the largest flat plane in the slab, which is the road, and drops those points. What remains are the things standing on the road. Euclidean clustering then walks that remainder and joins any points within sixty centimetres of each other into one object, and anything with at least fifteen points becomes a detection with a box.</p>
+<p>The node publishes each frame's boxes twice: as <code>visualization_msgs/MarkerArray</code> for viewers, and as <code>vision_msgs/Detection3DArray</code>, the standard message other ROS perception code expects, so the detections can feed a next stage later.</p>
+
+<h2>3. Seeing it, with no screen</h2>
+<p>The server that runs CARLA has no display, so the usual ROS visualiser was not an option. Instead I wrote a small headless renderer that subscribes to the same two topics, the raw cloud and the detector's boxes, and draws a top-down view straight to an image file. No display, no GPU, just points and rectangles rendered to a PNG per frame.</p>
+
+<figure class="shot">
+  <img src="week13-perception.png" alt="A single bird's-eye frame of the perception output. Concentric grey LiDAR rings surround a red ego-vehicle triangle at the origin. Green boxes with cross-marks label sixteen detected clusters, including a clear car-sized box below the ego vehicle and a larger box to the upper right." style="max-width:100%;height:auto;border-radius:8px;">
+  <figcaption>A single frame, sixteen objects. The concentric rings are the LiDAR sweep hitting the flat road at increasing distance. Notice the clean car-sized box just below the ego vehicle, and a much larger box to the upper right, which is a stretch of roadside wall, not a vehicle. More on that below.</figcaption>
+</figure>
+
+<h2>4. Reproduce it</h2>
+<p>The whole thing runs offline against the recorded bag, in the ROS 2 Humble environment. Three processes: the detector, the renderer, and the bag playback.</p>
+
+<pre><code><span class="c"># in the ROS 2 (Humble) environment, with the workspace sourced</span>
+source ~/perception_ws/install/setup.bash
+
+<span class="c"># 1. the perception node: /carla/lidar -> /carla/detections</span>
+ros2 run lidar_detector lidar_detector
+
+<span class="c"># 2. a headless bird's-eye renderer: points + boxes -> one PNG per frame</span>
+python bev_render.py
+
+<span class="c"># 3. replay the recorded CARLA LiDAR bag onto /carla/lidar</span>
+ros2 bag play ~/carla-bridge/carla_lidar
+
+<span class="c"># the PNG frames are then stitched into the looping animation above</span></code></pre>
+
+<p>One practical detail worth recording: the capture for the animation ran on its own <code>ROS_DOMAIN_ID</code>, isolated from a background bag player that was already looping the same recording on the default domain. Without that isolation the detector sees two copies of the stream interleaved, and the frames come out doubled and out of order. On a separate domain the playback is clean, one frame per message, in order.</p>
+
+<h2 id="scope">5. What a box does, and does not, mean</h2>
+<p>It is worth being precise about the claim, because it is easy to oversell this. The node detects <strong>clusters</strong>, not <strong>labelled objects</strong>. When the title says sixteen objects, it means sixteen groups of points that stand apart from the ground and from each other. It does not mean sixteen cars.</p>
+<div class="callout note">
+  <p><span class="label note" style="margin:0">Honest scope</span> &nbsp;There is no classification here and no comparison against ground truth. A box means points clustered together, so a car, a pedestrian, a pole, and a run of roadside wall all come back as boxes, and the large box in the still is exactly that, a wall rather than a vehicle. That is the correct next step: filter clusters by size, and add a classifier that says what each box actually is. This week proves the geometry works. Naming the objects comes after.</p>
+</div>
+
+<h2 id="next">6. Where it stands, and what's next</h2>
+<p><strong>Status:</strong> the pipeline now has a real perception stage. The raw CARLA LiDAR cloud is segmented and clustered into 3D bounding boxes in real time, published on the standard <code>vision_msgs</code> topic, and visible as a bird's-eye animation, all running offline from the recorded bag.</p>
+<ul class="clean">
+  <li><strong>Filter the clusters.</strong> Drop boxes that are too large or too flat to be a vehicle or a person, so walls and ground scraps stop being reported as objects.</li>
+  <li><strong>Name them.</strong> Add a classification step so a box is not just an obstacle but a car, a pedestrian, or a cyclist, which is the embedded-perception goal the project is aimed at.</li>
+  <li><strong>Draw the boxes in the dashboard.</strong> The detections already publish on a ROS topic the HMI can read. The next move is to render these boxes over the point cloud in the AGL Flutter dashboard itself, not only in this offline view.</li>
+</ul>
+<p>Week 12 made the dashboard packageable and got it reviewed. This week gave the pipeline something worth drawing: not just points, but objects.</p>
+
+<h2>Links</h2>
+<ul class="clean">
+  <li><strong>Application repository:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>. The Flutter HMI, the recorded rosbag, and the offline demo helper.</li>
+  <li><strong>Perception node:</strong> a small PCL detector (VoxelGrid, RANSAC ground removal, Euclidean clustering) publishing <code>vision_msgs/Detection3DArray</code>. It will be cleaned up and published alongside the app.</li>
+</ul>
+
+<div class="pager">
+  <a href="week12.html">&larr; Week 12</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 13</p></div>
+</div>
+</body>
+</html>
