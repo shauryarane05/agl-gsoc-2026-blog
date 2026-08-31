@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 14: The detections reach the dashboard</title>
+<meta name="description" content="Week 14: the perception boxes finally land on the glass. The AGL Flutter HMI now subscribes to the detector's vision_msgs/Detection3DArray and draws the 3D bounding boxes live over the point cloud, running end-to-end into an emulated AGL dashboard over an SSH-tunnelled rosbridge.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink" href="week10.html">Week 10</a>
+  <a class="navlink" href="week11.html">Week 11</a>
+  <a class="navlink" href="week12.html">Week 12</a>
+  <a class="navlink" href="week13.html">Week 13</a>
+  <a class="navlink active" href="week14.html">Week 14</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 14 &middot; Coding Period</div>
+  <h1>The detections reach the dashboard</h1>
+  <p class="sub">Week 13 turned the LiDAR cloud into boxes, but only in an offline renderer on the server. The dashboard still drew nothing but points. This week closes that gap: the detector's boxes now land on the actual AGL dashboard, drawn live over the cloud, running the whole way through into an emulated AGL screen.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">TL;DR</span> &nbsp;The AGL Flutter HMI now subscribes to a second ROS topic &mdash; the detector's <code>vision_msgs/Detection3DArray</code> on <code>/carla/detections</code> &mdash; and draws each 3D box over the point cloud in the top-down view, with a live object counter. I ran it end to end: the perception pipeline loops on the GPU-less server, its rosbridge is tunnelled to my laptop, and the AGL dashboard booted in QEMU reads the stream and renders the green boxes in real time. The dashboard now shows objects, not just points.</p>
+</div>
+
+<h2>1. The one thing that was still missing</h2>
+<p>By the end of Week 13 every piece existed except the join. The detector produced boxes and published them on the standard <code>vision_msgs/Detection3DArray</code> topic; the dashboard drew a live point cloud. But the dashboard was not reading the boxes. You could see the perception output only in a separate, headless bird's-eye renderer on the server &mdash; never on the screen that is meant to be the product.</p>
+<p>This week is that join, and nothing more glamorous: teach the HMI to subscribe to the detections and draw them. It is a small change in lines of code and a big one in what the demo means, because it is the first time the perception result appears where a driver would actually see it.</p>
+
+<figure class="shot">
+  <img src="week14-hmi-boxes.png" alt="The AGL LiDAR dashboard running live. A dark top-down radar view shows blue LiDAR points spread across concentric range rings labelled 20m, 30m, 40m and 50m, with a rotating sensor sweep wedge. Two green rectangles outline detected object clusters. The top bar reads AGL LiDAR on the left and shows chips for 1509 points, 14 objects, 1 Hz, and a green LIVE indicator on the right." style="max-width:100%;height:auto;border-radius:8px;">
+  <figcaption>The AGL Flutter dashboard, live. Blue dots are the raw CARLA LiDAR cloud; the green rectangles are the detector's boxes, each one a cluster the perception node found. The chips along the top read the running point count, the object count (14 here), the update rate, and a LIVE link indicator. This is the emulated AGL screen, reading detections streamed from the server.</figcaption>
+</figure>
+
+<h2>2. What changed in the app</h2>
+<p>The HMI already spoke rosbridge for the point cloud. Adding the boxes meant a second subscription over the same WebSocket and a second thing to draw:</p>
+<ul class="clean">
+  <li><strong>A second topic.</strong> Alongside <code>/carla/lidar</code>, the app now subscribes to <code>/carla/detections</code> (<code>vision_msgs/msg/Detection3DArray</code>). Same connection, same JSON transport &mdash; rosbridge just hands over a second stream.</li>
+  <li><strong>Parsing a detection.</strong> For each box the app reads the centre (<code>bbox.center.position</code>), the size (<code>bbox.size</code>), and the heading, recovering the yaw angle from the orientation quaternion. That becomes a simple footprint rectangle in the car's ground plane.</li>
+  <li><strong>Drawing it.</strong> The painter rotates each box's four corners by its yaw, maps them from sensor metres to screen pixels the same way the points are mapped, and strokes them in green with a faint fill. A chip in the top bar counts how many boxes are currently on screen.</li>
+</ul>
+<p>The endpoint the app connects to is a build-time setting rather than a hard-coded address, which is what let the same app binary connect to a local rosbridge on the bench and to a tunnelled one in this run without editing a line.</p>
+
+<h2>3. Running it end to end</h2>
+<p>The interesting part is that all of this ran across the same split setup the project has lived with: the heavy compute on the GPU-less server, the AGL screen emulated on the laptop, and rosbridge as the bridge between them. Four processes, three of them on the laptop:</p>
+
+<pre><code><span class="c"># 1. ON THE SERVER: loop the recorded bag through the detector,</span>
+<span class="c">#    with rosbridge serving /carla/lidar + /carla/detections on :9090</span>
+bash ~/carla-bridge/play_bag_detect.sh 5
+
+<span class="c"># 2. ON THE LAPTOP: tunnel the server's rosbridge to localhost,</span>
+<span class="c">#    so the QEMU guest reaches it at ws://10.0.2.2:9090</span>
+ssh -N -L 127.0.0.1:9090:localhost:9090 &lt;server&gt;
+
+<span class="c"># 3. ON THE LAPTOP: boot the AGL image in QEMU</span>
+./run-qemu.sh
+
+<span class="c"># 4. ON THE LAPTOP: build + push the HMI into the guest, pointed at the tunnel</span>
+flutter run -d agl-qemu --dart-define=ROSBRIDGE_URL=ws://10.0.2.2:9090</code></pre>
+
+<p>The screenshot above is exactly that stack: the boxes in it were computed on the server from the recorded CARLA cloud, carried out as JSON over the tunnel, and drawn by the app inside the emulated AGL dashboard. The transport leg the project proved back in the early weeks &mdash; rosbridge into AGL &mdash; is the same one carrying the detections now. It just gained a second passenger.</p>
+
+<h2>4. The interface is the contract</h2>
+<p>There is a deliberate design choice hiding in the message type. The app does not know or care <em>how</em> the boxes were produced. It subscribes to <code>vision_msgs/Detection3DArray</code> &mdash; a ROS standard &mdash; and draws whatever detections arrive. Today those come from the classical PCL clustering node. Tomorrow they could come from a learned detector such as PointPillars. As long as the new detector publishes the same message on the same topic, <strong>the dashboard does not change at all.</strong></p>
+<div class="callout win">
+  <p><strong>Why this matters:</strong> it lets the two halves move independently. The guidance from both mentors was the same &mdash; ship the working clustering version first, then treat the learned model as a parallel enhancement rather than a prerequisite. Because the HMI is wired to the message and not to the algorithm, that upgrade is a drop-in later, with nothing to rewire on the dashboard side. Release the working thing now; make it smarter without disturbing it.</p>
+</div>
+
+<h2 id="scope">5. Honest scope</h2>
+<p>Two things are worth stating plainly, so the screenshot is not read as more than it is.</p>
+<ul class="clean">
+  <li><strong>The boxes are still clusters, not named objects.</strong> Same caveat as last week: a box means points grouped together, so a wall or a pole can be boxed just like a car. Classification &mdash; saying what each box <em>is</em> &mdash; is still ahead.</li>
+  <li><strong>The detector runs beside the image, not inside it yet.</strong> In this run the perception node runs on the server and the AGL app renders what it publishes. Packaging the PCL detector into the AGL image itself, so the whole pipeline lives on the target, is the &ldquo;ROS-embedded&rdquo; step still on the list. What this week proves is the dashboard end: it can consume and draw real detections, live.</li>
+</ul>
+
+<h2 id="next">6. Where it stands, and what's next</h2>
+<p><strong>Status:</strong> the perception result is now visible on the dashboard. The AGL Flutter HMI subscribes to the detector's standard detection topic and renders the 3D boxes over the live point cloud, verified end to end into an emulated AGL screen over a tunnelled rosbridge. The loop the project set out to build &mdash; cloud &rarr; detections &rarr; dashboard &mdash; is closed for the first time.</p>
+<ul class="clean">
+  <li><strong>Ship it.</strong> Fold the box-rendering into the application repository and the AGL demo so the packaged app draws detections out of the box.</li>
+  <li><strong>Embed the detector.</strong> Package the PCL node into the AGL image so the detections are produced on the target, not on a separate server.</li>
+  <li><strong>Make it smarter.</strong> Start the learned detector (PointPillars) as the parallel track, publishing the same message the dashboard already reads.</li>
+</ul>
+<p>Week 13 gave the pipeline objects. Week 14 put them on the glass.</p>
+
+<h2>Links</h2>
+<ul class="clean">
+  <li><strong>Application repository:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>. The Flutter HMI (now drawing detections), the recorded rosbag, and the offline demo helper.</li>
+  <li><strong>Perception node:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app/tree/main/perception">github.com/shauryarane05/agl-lidar-hmi-app/perception</a>. The PCL detector publishing the <code>vision_msgs/Detection3DArray</code> the dashboard reads.</li>
+</ul>
+
+<div class="pager">
+  <a href="week13.html">&larr; Week 13</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 14</p></div>
+</div>
+</body>
+</html>

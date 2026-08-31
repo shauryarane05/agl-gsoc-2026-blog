@@ -25,6 +25,7 @@
   <a class="navlink" href="week11.html">Week 11</a>
   <a class="navlink" href="week12.html">Week 12</a>
   <a class="navlink" href="week13.html">Week 13</a>
+  <a class="navlink" href="week14.html">Week 14</a>
 </div></nav>
 
 <header class="hero"><div class="inner">
@@ -155,6 +156,11 @@ AGL dashboard app       →  draws a bird's-eye view of the surroundings</div>
     <div class="ph">Week 13</div>
     <h3>From points to objects</h3>
     <p>The perception step: a PCL node segments the ground out of the CARLA LiDAR cloud and clusters what is left into 3D bounding boxes, nine to sixteen objects a frame. Shown as a bird's-eye animation, run fully offline from the recorded bag on a server with no display.</p>
+  </a>
+  <a class="card" href="week14.html">
+    <div class="ph">Week 14</div>
+    <h3>The detections reach the dashboard</h3>
+    <p>The boxes finally land on the glass: the AGL Flutter HMI now subscribes to the detector's <code>Detection3DArray</code> and draws the 3D boxes live over the point cloud &mdash; run end to end into an emulated AGL screen over a tunnelled rosbridge. Cloud &rarr; detections &rarr; dashboard, closed for the first time.</p>
   </a>
 </div>
 
