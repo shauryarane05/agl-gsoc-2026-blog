@@ -32,37 +32,43 @@
 <header class="hero"><div class="inner">
   <div class="kicker">Week 16 &middot; Coding Period</div>
   <h1>Finalising the dataset, cutting the cord to CARLA</h1>
-  <p class="sub">This was a lighter fortnight &mdash; I had university exams, so instead of new features I used the time to lock down the foundations: a proper recorded dataset that the whole pipeline can run from with no simulator and no GPU, plus a round of polish on the dashboard implementation.</p>
+  <p class="sub">This was a lighter fortnight. I had university exams, so instead of new features I used the time to lock down the foundations: a proper recorded dataset that the whole pipeline can run from with no simulator and no GPU, plus a round of polish on the dashboard implementation.</p>
 </div></header>
 
 <div class="wrap">
 
 <div class="callout note">
-  <p><span class="label note" style="margin:0">TL;DR</span> &nbsp;Exams ate into the last two weeks, so this is a consolidation update. I finalised the recording into a self-contained <strong>reproducible bundle</strong> &mdash; a single ROS 2 bag holding LiDAR plus two cameras plus the simulator's ground-truth object list, recorded through the official <code>carla_ros_bridge</code>. The important outcome: the entire perception pipeline now runs from this recording alone &mdash; <strong>no CARLA, no GPU</strong> &mdash; which I verified end to end (the detector produces boxes at ~32&nbsp;Hz straight off the bag). I also polished and committed the box-rendering work into the app repository. Next week: turn this into a clean, reproducible app that can go upstream.</p>
+  <p><span class="label note" style="margin:0">TL;DR</span> &nbsp;Exams ate into the last two weeks, so this is a consolidation update. I finalised the recording into a self-contained <strong>reproducible bundle</strong>: a single ROS 2 bag holding LiDAR plus two cameras plus the simulator's ground-truth object list, recorded through the official <code>carla_ros_bridge</code>. The important outcome is that the entire perception pipeline now runs from this recording alone, with <strong>no CARLA and no GPU</strong>, which I verified end to end (the detector produces boxes at ~32&nbsp;Hz straight off the bag). I also polished and committed the box-rendering work into the app repository. Next week: turn this into a clean, reproducible app that can go upstream.</p>
 </div>
 
 <h2>1. Why a "finalised dataset" matters</h2>
-<p>Up to now the demo leaned on a short, LiDAR-only recording, and anything richer meant going back to the live simulator &mdash; which needs a GPU box running CARLA. That is a fragile foundation: it ties day-to-day work to one specific machine. So the goal this cycle was to record <em>once</em>, properly, and then never need CARLA or a GPU again for normal development.</p>
+<p>Up to now the demo leaned on a short, LiDAR-only recording, and anything richer meant going back to the live simulator, which needs a GPU box running CARLA. That is a fragile foundation: it ties day-to-day work to one specific machine. So the goal this cycle was to record <em>once</em>, properly, and then never need CARLA or a GPU again for normal development.</p>
 <p>The result is a self-contained bundle: the recording itself, a small viewer, the sensor configuration used to capture it, and the helper scripts to replay it. It is deliberately architecture-agnostic, so the same recording will replay on the server today and on the Jetson later without changes.</p>
 
 <h2>2. What's in the recording</h2>
-<p>It is a single ROS 2 bag &mdash; about 110 seconds of a car self-driving (scripted autopilot) around a town map, captured through the <strong>official</strong> <code>carla_ros_bridge</code> rather than the hand-rolled bridge from earlier weeks. Alongside the LiDAR it now carries the camera views and, crucially, the simulator's own ground truth:</p>
+<p>It is a single ROS 2 bag, about 110 seconds of a car self-driving (scripted autopilot) around a town map, captured through the <strong>official</strong> <code>carla_ros_bridge</code> rather than the hand-rolled bridge from earlier weeks. Alongside the LiDAR it now carries the camera views and, crucially, the simulator's own ground truth:</p>
 <ul class="clean">
-  <li><strong>LiDAR</strong> point cloud (~31&nbsp;Hz, 50&nbsp;m range) &mdash; the detector's input.</li>
-  <li><strong>Two cameras</strong> &mdash; a forward-facing view and a top-down "aerial" view mounted above the car &mdash; so the LiDAR detections can eventually be checked against what the scene actually looks like.</li>
-  <li><strong>Ground-truth object list</strong> &mdash; the simulator's true position and box for every actor. This is what lets me <em>score</em> the detector offline, and it will double as free training labels for a learned detector later.</li>
+  <li><strong>LiDAR</strong> point cloud (~31&nbsp;Hz, 50&nbsp;m range): the detector's input.</li>
+  <li><strong>Two cameras</strong>, a forward-facing view and a top-down "aerial" view mounted above the car, so the LiDAR detections can eventually be checked against what the scene actually looks like.</li>
+  <li><strong>Ground-truth object list</strong>: the simulator's true position and box for every actor. This is what lets me <em>score</em> the detector offline, and it will double as free training labels for a learned detector later.</li>
   <li>Plus odometry, IMU, GNSS and the transform tree.</li>
 </ul>
+
+<figure class="shot">
+  <video src="week16-demo.mp4" controls muted loop playsinline preload="metadata" style="max-width:100%;height:auto;border-radius:8px;"></video>
+  <figcaption>The recording played back through a small three-panel viewer: the forward camera (left), the top-down aerial camera (middle), and the LiDAR point cloud coloured by height (right). All three come from the same bag, replayed with no CARLA and no GPU.</figcaption>
+</figure>
+
 <p>One small bug had to be fixed to record the cameras at all: the bridge's camera path crashed inside <code>cv_bridge</code> on this OpenCV/NumPy combination. I bypassed it by building the image message by hand, which is documented in the bundle as a patch for anyone who re-records elsewhere.</p>
 
 <h2>3. Cutting the cord: verified GPU-free</h2>
 <p>The whole point was to prove the pipeline no longer depends on the simulator or a GPU, so I tested exactly that: replay the bag, run the existing PCL detector against it, and watch the detections come out.</p>
 <ul class="clean">
-  <li>The bag replays cleanly and the detector produces <strong>6&ndash;10 clusters per frame</strong>.</li>
-  <li><code>/carla/detections</code> publishes at <strong>~32&nbsp;Hz</strong> &mdash; on a machine with no GPU and no CARLA running.</li>
+  <li>The bag replays cleanly and the detector produces <strong>6 to 10 clusters per frame</strong>.</li>
+  <li><code>/carla/detections</code> publishes at <strong>~32&nbsp;Hz</strong>, on a machine with no GPU and no CARLA running.</li>
   <li>Both camera streams are present on the bus too, so the data for a future camera-vs-LiDAR comparison view is already in hand.</li>
 </ul>
-<p>That confirms the important thing: I can develop the rest of the project &mdash; the dashboard, scoring, and eventually the learned detector &mdash; entirely from the recording. The only thing that still needs a GPU is training a learned model down the line, and that is a one-off job that can run on any borrowed GPU, not on the recording box.</p>
+<p>That confirms the important thing: I can develop the rest of the project, the dashboard, scoring, and eventually the learned detector, entirely from the recording. The only thing that still needs a GPU is training a learned model down the line, and that is a one-off job that can run on any borrowed GPU, not on the recording box.</p>
 
 <h2>4. Polishing the implementation</h2>
 <p>With exams limiting new feature work, I spent the remaining time cleaning up rather than expanding: the box-rendering added to the Flutter HMI last cycle is now committed into the application repository, the offline demo script launches the detector when it is present, and the README documents both the LiDAR and detection topics and the perception node. Small, but it moves the app from "works on my machine" toward "someone else can run it."</p>
@@ -70,8 +76,8 @@
 <h2 id="next">5. Where it stands, and what's next</h2>
 <p><strong>Status:</strong> the dataset is finalised and decoupled from CARLA/GPU; the perception pipeline is verified to run from the recording alone; and the dashboard box-rendering is committed and tidied.</p>
 <ul class="clean">
-  <li><strong>Make it reproducible and upstreamable.</strong> Next week's goal is to turn the current implementation into a clean, self-contained app that someone else can build and run from scratch &mdash; the shape it needs to be in to go upstream into AGL.</li>
-  <li><strong>A small shippable clip.</strong> The full recording is large; I will carve a short clip from it for the packaged demo so the image stays lean.</li>
+  <li><strong>Make it reproducible and upstreamable.</strong> Next week's goal is to turn the current implementation into a clean, self-contained app that someone else can build and run from scratch, the shape it needs to be in to go upstream into AGL.</li>
+  <li><strong>A small shippable clip.</strong> The full recording is large, so I will carve a short clip from it for the packaged demo to keep the image lean.</li>
   <li><strong>Camera comparison.</strong> With both camera streams recorded, a side-by-side "detections vs. camera" view becomes a natural next feature.</li>
 </ul>
 <p>A quieter fortnight because of exams, but the groundwork is worth it: the project no longer depends on a simulator or a GPU to move forward.</p>
