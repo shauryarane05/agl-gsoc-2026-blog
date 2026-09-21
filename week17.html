@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 17: Cameras next to the LiDAR, and pushing toward the image</title>
+<meta name="description" content="Week 17: the AGL dashboard now shows the two camera feeds beside the LiDAR detections in one fused view, streamed over the same rosbridge and kept in sync with JPEG. Plus the packaging work to get the demo auto-starting inside the AGL image.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink" href="week10.html">Week 10</a>
+  <a class="navlink" href="week11.html">Week 11</a>
+  <a class="navlink" href="week12.html">Week 12</a>
+  <a class="navlink" href="week13.html">Week 13</a>
+  <a class="navlink" href="week14.html">Week 14</a>
+  <a class="navlink" href="week16.html">Week 16</a>
+  <a class="navlink active" href="week17.html">Week 17</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 17 &middot; Coding Period</div>
+  <h1>Cameras next to the LiDAR</h1>
+  <p class="sub">Until now the dashboard showed the LiDAR and its detections, but not what the scene actually looked like. This week the two camera views join the same screen, right beside the radar, so you can see the detected boxes and the real road at the same moment.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">TL;DR</span> &nbsp;The AGL HMI now renders three panels at once: the top-down LiDAR view with the perception boxes, plus a forward camera and a top-down aerial camera. All three arrive over the <strong>same rosbridge</strong> the app already used, so there is no new service. The cameras are sent as compressed JPEG so they stay in step with the LiDAR instead of lagging behind. I also started the packaging work to get the demo auto-starting inside the built AGL image, which surfaced a couple of upstream fixes.</p>
+</div>
+
+<h2>1. Why put the cameras on the screen</h2>
+<p>A LiDAR box says "there is something here." It does not say what. Putting the camera views next to the detections turns the dashboard into something you can actually sanity-check: the radar draws a box, and you can glance across and confirm there really is a car there. The recording already carried two cameras, a forward-facing one and a top-down aerial one mounted above the car, so the data was waiting; this week was about getting it onto the glass.</p>
+
+<figure class="shot">
+  <video src="week17-cameras.mp4" poster="week17-cameras.png" controls muted loop playsinline preload="metadata" style="max-width:100%;height:auto;border-radius:8px;"></video>
+  <figcaption>The AGL dashboard, live: the LiDAR radar with green detection boxes on the left, and the forward and aerial camera feeds on the right. Everything updates together, in sync, from a single recording replayed over rosbridge. The chips read the point count, the object count, the update rate, and the LIVE link indicator.</figcaption>
+</figure>
+
+<h2>2. How it is wired, and what it reuses</h2>
+<p>The important design choice was to add nothing new. The app already speaks to rosbridge for the point cloud and the detections, so the cameras ride the very same WebSocket. The app opens one connection and subscribes to four topics: the cloud, the detections, and the two camera streams. Each camera frame is decoded and drawn in its own panel.</p>
+<ul class="clean">
+  <li><strong>One transport.</strong> No second server, no separate video pipeline. The cameras use the rosbridge the app was already connected to.</li>
+  <li><strong>Compressed to stay in sync.</strong> Raw camera frames are large and were arriving late, so the camera view lagged the LiDAR by seconds. Sending them as JPEG, which are tiny, fixed that: the camera now tracks the radar in real time.</li>
+  <li><strong>The app stays portable.</strong> The camera panels are plain Flutter widgets decoding standard image messages. Nothing AGL-specific leaked into the app code.</li>
+</ul>
+
+<h2>3. Toward the built image</h2>
+<p>Running the app during development is one thing; having it ship inside the AGL system image and launch from a home-screen tile is another. This week I worked with the maintainers on that second half, and it surfaced two concrete pieces of work.</p>
+<ul class="clean">
+  <li><strong>A build-system fix.</strong> The current AGL build tree changed where recipe sources are unpacked, so the recipe needed a one-line update to match. It built fine on the older release I had developed against, and only showed up on the newer tree, which is a good reminder to test against the branch the maintainers actually build.</li>
+  <li><strong>Auto-starting the demo.</strong> Tapping the app tile launches the user interface, but the data side (the local rosbridge and the bag replay) still had to be started by hand. I added a systemd service so that backend comes up on its own, which means the tile "just works" with no manual step. It is modeled on the existing AGL service units.</li>
+</ul>
+<p>The full image build itself is running on the maintainer side; my part was getting the recipe correct and self-starting.</p>
+
+<h2 id="next">4. Where it stands, and what is next</h2>
+<p><strong>Status:</strong> the dashboard now fuses LiDAR detections with two live camera views in one AGL screen, over a single rosbridge, in sync. The recipe is fixed for the current build tree and the demo backend now auto-starts via systemd.</p>
+<ul class="clean">
+  <li><strong>Land the image.</strong> Get the demo building cleanly into the AGL image and confirm the tile launches the full three-panel view on its own.</li>
+  <li><strong>Run the detector on the target.</strong> Right now the detections are replayed from the recording; computing them live on the device, the "ROS-embedded" step, is the next milestone. The dependency it needs, PCL, is already available in the ROS layers.</li>
+  <li><strong>Shrink the shipped clip.</strong> The self-contained recording is large; a shorter clip keeps the image lean.</li>
+</ul>
+
+<h2>Links</h2>
+<ul class="clean">
+  <li><strong>Application repository:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>.</li>
+  <li><strong>Perception node:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app/tree/main/perception">github.com/shauryarane05/agl-lidar-hmi-app/perception</a>.</li>
+</ul>
+
+<div class="pager">
+  <a href="week16.html">&larr; Week 16</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 17</p></div>
+</div>
+</body>
+</html>

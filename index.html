@@ -27,6 +27,7 @@
   <a class="navlink" href="week13.html">Week 13</a>
   <a class="navlink" href="week14.html">Week 14</a>
   <a class="navlink" href="week16.html">Week 16</a>
+  <a class="navlink" href="week17.html">Week 17</a>
 </div></nav>
 
 <header class="hero"><div class="inner">
@@ -167,6 +168,11 @@ AGL dashboard app       →  draws a bird's-eye view of the surroundings</div>
     <div class="ph">Week 16</div>
     <h3>Finalising the dataset, cutting the cord to CARLA</h3>
     <p>A lighter fortnight around exams: I finalised the recording into a self-contained reproducible bundle (LiDAR + two cameras + ground truth) and verified the whole perception pipeline now runs from it with <strong>no CARLA and no GPU</strong>: detections at ~32&nbsp;Hz straight off the bag. Plus a round of polish on the HMI. Next: a clean, upstreamable app.</p>
+  </a>
+  <a class="card" href="week17.html">
+    <div class="ph">Week 17</div>
+    <h3>Cameras next to the LiDAR</h3>
+    <p>The dashboard now fuses three panels in one AGL screen: the LiDAR radar with detection boxes, plus a forward and an aerial camera, all over the <strong>same rosbridge</strong> and kept in sync with JPEG. Plus the packaging work to auto-start the demo inside the built image (a systemd unit and a build-tree recipe fix).</p>
   </a>
 </div>
 
