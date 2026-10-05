@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 18: Onto the Jetson, and drafting the next HMI</title>
+<meta name="description" content="Week 18: the verified LiDAR perception pipeline is now being carried onto the Jetson Orin Nano target, and early design drafts show where the HMI is going next, clearer and more functional.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink" href="week10.html">Week 10</a>
+  <a class="navlink" href="week11.html">Week 11</a>
+  <a class="navlink" href="week12.html">Week 12</a>
+  <a class="navlink" href="week13.html">Week 13</a>
+  <a class="navlink" href="week14.html">Week 14</a>
+  <a class="navlink" href="week16.html">Week 16</a>
+  <a class="navlink" href="week17.html">Week 17</a>
+  <a class="navlink active" href="week18.html">Week 18</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 18 &middot; Coding Period</div>
+  <h1>Onto the Jetson, and drafting the next HMI</h1>
+  <p class="sub">The demo pipeline is verified end to end inside a real AGL image. The work now splits two ways: bringing that same image up on the Jetson Orin Nano board, and drawing up how the dashboard should look next, cleaner and more functional.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout note">
+  <p><span class="label note" style="margin:0">TL;DR</span> &nbsp;The LiDAR perception demo now boots inside a built AGL image, launches from its home-screen tile, and starts its own data backend with no manual steps. That verified pipeline is now being carried onto the <strong>Jetson Orin Nano</strong> target hardware, which is in progress and will be finished next. Alongside the hardware bring-up, this post shares early <strong>design drafts</strong> for the next version of the HMI: a clear object list, color-coded detection classes, live telemetry, and a layout that adapts from a portrait screen to a wide instrument cluster.</p>
+</div>
+
+<h2>1. Where the pipeline stands</h2>
+<p>The last few weeks closed the loop from a laptop demo into a real system image. The recipe that packages the dashboard is now <strong>merged into AGL</strong>, so anyone can build the app straight into an image. Booted in the emulated AGL target, the result is the full experience: tap the tile, the dashboard opens, and the data side comes up on its own.</p>
+<ul class="clean">
+  <li><strong>It boots from the image.</strong> The app ships as a launcher tile in a built <code>agl-ivi-demo-flutter</code> image, not a side-loaded binary.</li>
+  <li><strong>It starts itself.</strong> A systemd unit brings up the local rosbridge and the recorded bag replay on boot, so the tile "just works" with no shell step. That unit is in upstream review now.</li>
+  <li><strong>It shows the full view.</strong> The LiDAR plan view, the detection boxes, and the two camera panels all render together, in sync, over a single rosbridge.</li>
+</ul>
+<p>This was verified on the emulated AGL target (<code>qemux86-64</code>). The next job is to prove the same image on real silicon.</p>
+
+<h2>2. The dashboard today</h2>
+<p>Here is the current app, the build that is now packaged into the image. The LiDAR plan view sits on the left with the perception boxes drawn over the point cloud, and the forward and aerial camera feeds sit on the right. The chips along the top read the point count, the object count, the update rate, and the live link status.</p>
+<figure class="shot">
+  <img src="week17-cameras.png" alt="The current AGL LiDAR dashboard: top-down LiDAR plan view with green detection boxes on the left, forward and aerial camera panels on the right.">
+  <figcaption>The dashboard as it runs today, inside the AGL shell. LiDAR plan view with detection boxes, plus the forward and aerial cameras, all from one recording replayed over rosbridge.</figcaption>
+</figure>
+
+<h2>3. Testing on the Jetson target</h2>
+<p>The emulator proves the software. The target proves the product. The same image is now being brought up on the <strong>Jetson Orin Nano Super</strong>, the board this project targets. Two things change for the better on real hardware: the GPU renders the Flutter compositor natively, and the display is a true <strong>portrait panel</strong>, so the dashboard stands upright instead of being rotated to fit a desktop window.</p>
+<p>What is being checked on the device right now:</p>
+<ul class="clean">
+  <li><strong>The tile launches on the board.</strong> The same home-screen tile opens the HMI on the Jetson compositor.</li>
+  <li><strong>The backend comes up on device.</strong> The local rosbridge and the bag replay start under systemd, exactly as in the emulator.</li>
+  <li><strong>It renders in portrait, at rate.</strong> The three-panel view fills the upright screen and keeps up with the LiDAR update rate on the board's GPU.</li>
+</ul>
+<p>This stage is in progress. The image and board bring-up are underway, and the on-device run will be completed next.</p>
+
+<h2>4. Drafting the next HMI</h2>
+<p>With the pipeline proven, the question shifts from "does it work" to "does it read at a glance." These are early <strong>design drafts</strong>, not the shipped app yet. They push the dashboard toward something a driver could actually use: a readable object list, a consistent color system for object classes, live telemetry, and a layout that adapts between a portrait screen and a wide cluster.</p>
+
+<figure class="shot" style="max-width:440px;margin-left:auto;margin-right:auto">
+<svg viewBox="0 0 420 822" width="100%" height="auto" role="img" aria-label="Design draft of the next portrait HMI layout" xmlns="http://www.w3.org/2000/svg" style="display:block">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2ee6a6" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#2ee6a6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="camA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2a3647"/><stop offset="100%" stop-color="#0c1017"/>
+    </linearGradient>
+    <linearGradient id="camB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#20303f"/><stop offset="100%" stop-color="#0b0f16"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="418" height="820" rx="16" fill="#0a0e14" stroke="#232a35"/>
+  <!-- header -->
+  <text x="22" y="34" font-family="sans-serif" font-size="15" font-weight="700"><tspan fill="#2ee6a6">AGL</tspan><tspan fill="#e6edf3" font-weight="600"> &#183; LiDAR PERCEPTION</tspan></text>
+  <circle cx="300" cy="29" r="4" fill="#2ee6a6"/>
+  <text x="310" y="33" font-family="sans-serif" font-size="11" fill="#2ee6a6" font-weight="600">LIVE</text>
+  <text x="348" y="33" font-family="sans-serif" font-size="11" fill="#8b949e">&#183; 34 Hz</text>
+  <line x1="16" y1="50" x2="404" y2="50" stroke="#1b2230"/>
+  <!-- radar -->
+  <circle cx="210" cy="250" r="60" fill="none" stroke="#1f2a38"/>
+  <circle cx="210" cy="250" r="120" fill="none" stroke="#1f2a38"/>
+  <circle cx="210" cy="250" r="178" fill="none" stroke="#1f2a38"/>
+  <line x1="210" y1="72" x2="210" y2="428" stroke="#141b26"/>
+  <line x1="32" y1="250" x2="388" y2="250" stroke="#141b26"/>
+  <circle cx="210" cy="250" r="150" fill="url(#glow)"/>
+  <path d="M210,250 L372,172 A178,178 0 0,0 320,96 Z" fill="#2ee6a6" fill-opacity="0.10"/>
+  <text x="216" y="194" font-family="sans-serif" font-size="9" fill="#54627a">10m</text>
+  <text x="216" y="136" font-family="sans-serif" font-size="9" fill="#54627a">20m</text>
+  <text x="216" y="78" font-family="sans-serif" font-size="9" fill="#54627a">30m</text>
+  <!-- point cloud -->
+  <g fill="#3b82f6">
+    <circle cx="170" cy="152" r="1.7"/><circle cx="240" cy="142" r="1.7"/><circle cx="276" cy="176" r="1.7"/>
+    <circle cx="150" cy="202" r="1.7"/><circle cx="256" cy="212" r="1.7"/><circle cx="200" cy="122" r="1.7"/>
+    <circle cx="226" cy="300" r="1.7"/><circle cx="300" cy="300" r="1.7"/><circle cx="190" cy="356" r="1.7"/>
+  </g>
+  <g fill="#2ee6a6">
+    <circle cx="131" cy="236" r="1.7"/><circle cx="291" cy="246" r="1.7"/><circle cx="165" cy="322" r="1.7"/>
+    <circle cx="250" cy="346" r="1.7"/><circle cx="110" cy="252" r="1.7"/><circle cx="321" cy="230" r="1.7"/>
+    <circle cx="276" cy="120" r="1.7"/><circle cx="160" cy="112" r="1.7"/>
+  </g>
+  <!-- detections -->
+  <g transform="rotate(-16 258 150)">
+    <rect x="240" y="138" width="36" height="24" rx="3" fill="#58a6ff" fill-opacity="0.14" stroke="#58a6ff" stroke-width="1.5"/>
+  </g>
+  <text x="258" y="128" font-family="sans-serif" font-size="9" fill="#58a6ff" text-anchor="middle">CAR &#183; .94</text>
+  <rect x="112" y="204" width="16" height="16" rx="2" fill="#f0a73b" fill-opacity="0.16" stroke="#f0a73b" stroke-width="1.5"/>
+  <text x="120" y="197" font-family="sans-serif" font-size="9" fill="#f0a73b" text-anchor="middle">PED</text>
+  <g transform="rotate(12 301 331)">
+    <rect x="286" y="322" width="30" height="18" rx="3" fill="#bc8cff" fill-opacity="0.14" stroke="#bc8cff" stroke-width="1.5"/>
+  </g>
+  <text x="301" y="314" font-family="sans-serif" font-size="9" fill="#bc8cff" text-anchor="middle">CYC</text>
+  <!-- ego -->
+  <circle cx="210" cy="250" r="13" fill="#2ee6a6" fill-opacity="0.14"/>
+  <polygon points="210,234 201,264 219,264" fill="#2ee6a6"/>
+  <!-- cameras -->
+  <rect x="22" y="448" width="180" height="100" rx="8" fill="url(#camA)" stroke="#232a35"/>
+  <rect x="34" y="520" width="156" height="16" fill="#394a5e" opacity="0.5"/>
+  <polygon points="90,536 130,536 150,500 70,500" fill="#4a5b70" opacity="0.4"/>
+  <rect x="30" y="456" width="44" height="15" rx="4" fill="#0b0f16" stroke="#232a35"/>
+  <text x="52" y="467" font-family="sans-serif" font-size="9" fill="#8b949e" text-anchor="middle">FRONT</text>
+  <rect x="218" y="448" width="180" height="100" rx="8" fill="url(#camB)" stroke="#232a35"/>
+  <rect x="296" y="456" width="24" height="84" fill="#2b3647" opacity="0.5"/>
+  <rect x="302" y="492" width="12" height="18" rx="2" fill="#58a6ff" opacity="0.7"/>
+  <rect x="226" y="456" width="46" height="15" rx="4" fill="#0b0f16" stroke="#232a35"/>
+  <text x="249" y="467" font-family="sans-serif" font-size="9" fill="#8b949e" text-anchor="middle">AERIAL</text>
+  <!-- object list -->
+  <rect x="22" y="568" width="376" height="156" rx="10" fill="#12161f" stroke="#232a35"/>
+  <text x="40" y="592" font-family="sans-serif" font-size="11" fill="#8b949e" letter-spacing="0.08em">DETECTED OBJECTS</text>
+  <text x="380" y="592" font-family="sans-serif" font-size="10" fill="#54627a" text-anchor="end">by range</text>
+  <!-- row 1 -->
+  <rect x="40" y="616" width="12" height="12" rx="2" fill="#58a6ff"/>
+  <text x="62" y="626" font-family="sans-serif" font-size="13" fill="#e6edf3">Vehicle</text>
+  <text x="150" y="626" font-family="sans-serif" font-size="12" fill="#8b949e">12.4 m</text>
+  <rect x="236" y="617" width="110" height="7" rx="3" fill="#232a35"/>
+  <rect x="236" y="617" width="103" height="7" rx="3" fill="#58a6ff"/>
+  <text x="380" y="626" font-family="sans-serif" font-size="11" fill="#8b949e" text-anchor="end">.94</text>
+  <!-- row 2 -->
+  <rect x="40" y="652" width="12" height="12" rx="2" fill="#f0a73b"/>
+  <text x="62" y="662" font-family="sans-serif" font-size="13" fill="#e6edf3">Pedestrian</text>
+  <text x="150" y="662" font-family="sans-serif" font-size="12" fill="#8b949e">6.1 m</text>
+  <rect x="236" y="653" width="110" height="7" rx="3" fill="#232a35"/>
+  <rect x="236" y="653" width="89" height="7" rx="3" fill="#f0a73b"/>
+  <text x="380" y="662" font-family="sans-serif" font-size="11" fill="#8b949e" text-anchor="end">.81</text>
+  <!-- row 3 -->
+  <rect x="40" y="688" width="12" height="12" rx="2" fill="#bc8cff"/>
+  <text x="62" y="698" font-family="sans-serif" font-size="13" fill="#e6edf3">Cyclist</text>
+  <text x="150" y="698" font-family="sans-serif" font-size="12" fill="#8b949e">18.9 m</text>
+  <rect x="236" y="689" width="110" height="7" rx="3" fill="#232a35"/>
+  <rect x="236" y="689" width="84" height="7" rx="3" fill="#bc8cff"/>
+  <text x="380" y="698" font-family="sans-serif" font-size="11" fill="#8b949e" text-anchor="end">.76</text>
+  <!-- telemetry -->
+  <g font-family="sans-serif">
+    <rect x="22" y="742" width="88" height="52" rx="8" fill="#12161f" stroke="#232a35"/>
+    <text x="34" y="762" font-size="9" fill="#54627a">SPEED</text>
+    <text x="34" y="782" font-size="16" fill="#e6edf3" font-weight="600">32<tspan font-size="9" fill="#8b949e"> km/h</tspan></text>
+    <rect x="118" y="742" width="88" height="52" rx="8" fill="#12161f" stroke="#232a35"/>
+    <text x="130" y="762" font-size="9" fill="#54627a">HEADING</text>
+    <text x="130" y="782" font-size="16" fill="#e6edf3" font-weight="600">118&#176;</text>
+    <rect x="214" y="742" width="88" height="52" rx="8" fill="#12161f" stroke="#232a35"/>
+    <text x="226" y="762" font-size="9" fill="#54627a">POINTS</text>
+    <text x="226" y="782" font-size="16" fill="#e6edf3" font-weight="600">897</text>
+    <rect x="310" y="742" width="88" height="52" rx="8" fill="#12161f" stroke="#232a35"/>
+    <text x="322" y="762" font-size="9" fill="#54627a">RANGE</text>
+    <text x="322" y="782" font-size="16" fill="#e6edf3" font-weight="600">50<tspan font-size="9" fill="#8b949e"> m</tspan></text>
+  </g>
+  <text x="402" y="814" font-family="sans-serif" font-size="9" fill="#39424f" text-anchor="end">CONCEPT</text>
+</svg>
+  <figcaption>Design draft (concept mockup). A portrait layout: the LiDAR plan view up top with color-coded detection boxes, the two camera feeds, a readable object list showing class, distance and confidence, and a live telemetry strip. Colors map to object class: blue vehicle, amber pedestrian, purple cyclist.</figcaption>
+</figure>
+
+<p>The second draft pulls out the pieces that make it <em>more functional</em>, the parts a plain point cloud cannot tell you: what each object is, how sure the detector is, and how close it is.</p>
+
+<figure class="shot">
+<svg viewBox="0 0 840 240" width="100%" height="auto" role="img" aria-label="Design draft of HMI components: class legend, object detail, proximity" xmlns="http://www.w3.org/2000/svg" style="display:block">
+  <rect x="1" y="1" width="838" height="238" rx="12" fill="#0a0e14" stroke="#232a35"/>
+  <!-- Card A: classes -->
+  <rect x="20" y="20" width="240" height="200" rx="12" fill="#12161f" stroke="#232a35"/>
+  <text x="40" y="52" font-family="sans-serif" font-size="11" fill="#8b949e" letter-spacing="0.08em">OBJECT CLASSES</text>
+  <rect x="40" y="82" width="14" height="14" rx="3" fill="#58a6ff"/>
+  <text x="66" y="94" font-family="sans-serif" font-size="14" fill="#e6edf3">Vehicle</text>
+  <text x="240" y="94" font-family="sans-serif" font-size="14" fill="#8b949e" text-anchor="end">4</text>
+  <rect x="40" y="122" width="14" height="14" rx="3" fill="#f0a73b"/>
+  <text x="66" y="134" font-family="sans-serif" font-size="14" fill="#e6edf3">Pedestrian</text>
+  <text x="240" y="134" font-family="sans-serif" font-size="14" fill="#8b949e" text-anchor="end">3</text>
+  <rect x="40" y="162" width="14" height="14" rx="3" fill="#bc8cff"/>
+  <text x="66" y="174" font-family="sans-serif" font-size="14" fill="#e6edf3">Cyclist</text>
+  <text x="240" y="174" font-family="sans-serif" font-size="14" fill="#8b949e" text-anchor="end">2</text>
+  <!-- Card B: object detail -->
+  <rect x="300" y="20" width="240" height="200" rx="12" fill="#12161f" stroke="#232a35"/>
+  <text x="320" y="52" font-family="sans-serif" font-size="11" fill="#8b949e" letter-spacing="0.08em">NEAREST OBJECT</text>
+  <rect x="320" y="70" width="12" height="12" rx="3" fill="#f0a73b"/>
+  <text x="340" y="81" font-family="sans-serif" font-size="19" fill="#e6edf3" font-weight="600">Pedestrian</text>
+  <text x="320" y="110" font-family="sans-serif" font-size="13" fill="#8b949e">distance <tspan fill="#e6edf3" font-weight="600">6.1 m</tspan></text>
+  <text x="320" y="140" font-family="sans-serif" font-size="11" fill="#54627a">CONFIDENCE</text>
+  <rect x="320" y="148" width="200" height="8" rx="4" fill="#232a35"/>
+  <rect x="320" y="148" width="162" height="8" rx="4" fill="#f0a73b"/>
+  <text x="520" y="140" font-family="sans-serif" font-size="11" fill="#8b949e" text-anchor="end">0.81</text>
+  <text x="320" y="188" font-family="sans-serif" font-size="13" fill="#8b949e">velocity <tspan fill="#e6edf3" font-weight="600">1.4 m/s</tspan></text>
+  <!-- Card C: proximity -->
+  <rect x="580" y="20" width="240" height="200" rx="12" fill="#12161f" stroke="#232a35"/>
+  <text x="600" y="52" font-family="sans-serif" font-size="11" fill="#8b949e" letter-spacing="0.08em">PROXIMITY</text>
+  <path d="M610,170 A90,90 0 0 1 790,170" fill="none" stroke="#2ee6a6" stroke-width="7" stroke-opacity="0.8"/>
+  <path d="M635,170 A65,65 0 0 1 765,170" fill="none" stroke="#f0a73b" stroke-width="7" stroke-opacity="0.85"/>
+  <path d="M660,170 A40,40 0 0 1 740,170" fill="none" stroke="#f85149" stroke-width="7" stroke-opacity="0.85"/>
+  <polygon points="700,162 694,178 706,178" fill="#c9d1d9"/>
+  <circle cx="662" cy="128" r="5" fill="#f0a73b"/>
+  <text x="700" y="205" font-family="sans-serif" font-size="13" fill="#f0a73b" text-anchor="middle" font-weight="600">CAUTION &#183; 6.1 m</text>
+  <text x="822" y="232" font-family="sans-serif" font-size="9" fill="#39424f" text-anchor="end">CONCEPT</text>
+</svg>
+  <figcaption>Design draft (concept mockups). Left: a class legend with live counts. Center: a detail card for the nearest object, with confidence and velocity. Right: a proximity ring that turns from green to amber to red as an object closes in. These turn raw detections into something readable at a glance.</figcaption>
+</figure>
+
+<p>The direction is simple: keep the exact same data the pipeline already carries, and spend the effort on making it legible. Nothing here needs a new sensor or a new transport, only a better front end over the stream that already works.</p>
+
+<h2 id="next">5. Where it stands, and what is next</h2>
+<p><strong>Status:</strong> the demo is verified inside a built AGL image and is being brought onto the Jetson Orin Nano. The design direction for the next HMI is drafted.</p>
+<ul class="clean">
+  <li><strong>Finish the Jetson run.</strong> Complete the on-device bring-up and confirm the tile launches the full portrait view on the board.</li>
+  <li><strong>Land the auto-start unit.</strong> The systemd unit that starts the backend on boot is in upstream review; once it merges, the image is fully self-contained.</li>
+  <li><strong>Run the detector on the target.</strong> Today the detections are replayed from the recording; computing them live on the device, the "ROS-embedded" step, is the headline milestone still ahead. The dependency it needs, PCL, is already available in the ROS layers.</li>
+  <li><strong>Fold in the new HMI.</strong> Take these drafts into the app: the object list, the class colors, and the telemetry strip.</li>
+</ul>
+
+<h2>Links</h2>
+<ul class="clean">
+  <li><strong>Application repository:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>.</li>
+  <li><strong>Perception node:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app/tree/main/perception">github.com/shauryarane05/agl-lidar-hmi-app/perception</a>.</li>
+</ul>
+
+<div class="pager">
+  <a href="week17.html">&larr; Week 17</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 18</p></div>
+</div>
+</body>
+</html>
