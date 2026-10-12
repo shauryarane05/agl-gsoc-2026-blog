@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 19: The detector runs on the device</title>
+<meta name="description" content="Week 19: the headline milestone lands. The perception node now runs inside the AGL image and computes the detection boxes live on the device, instead of replaying them from the recording.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink" href="week10.html">Week 10</a>
+  <a class="navlink" href="week11.html">Week 11</a>
+  <a class="navlink" href="week12.html">Week 12</a>
+  <a class="navlink" href="week13.html">Week 13</a>
+  <a class="navlink" href="week14.html">Week 14</a>
+  <a class="navlink" href="week16.html">Week 16</a>
+  <a class="navlink" href="week17.html">Week 17</a>
+  <a class="navlink" href="week18.html">Week 18</a>
+  <a class="navlink active" href="week19.html">Week 19</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 19 &middot; Coding Period</div>
+  <h1>The detector runs on the device</h1>
+  <p class="sub">Last week this was the one milestone still ahead: computing the detections on the target instead of replaying them. This week it works. The perception node now runs inside the AGL image, reads the raw LiDAR, and draws the boxes itself, in real time.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout win">
+  <p><span class="label fix" style="margin:0">MILESTONE</span> &nbsp;The <strong>"ROS-embedded"</strong> step is done. A PCL perception node is now packaged into the AGL image and starts on boot. The demo no longer replays pre-recorded boxes: it plays back only the raw sensor streams, and the node on the device turns the point cloud into detections live at around 30 Hz. The dashboard you see is drawing boxes that were computed on the target a few milliseconds earlier.</p>
+</div>
+
+<h2>1. What changed</h2>
+<p>Up to now the demo was an honest shortcut. The recorded clip carried the LiDAR cloud, the two camera feeds, <em>and</em> the detection boxes, all pre-computed, so the dashboard had something to draw without any perception running on the board. That proved the HMI and the transport, but not the part the project is actually about: perception running on the embedded target.</p>
+<p>That gap is now closed. The pipeline on the device looks like this:</p>
+<div class="diagram">rosbag (raw only)                 on-device node                     HMI
+  /carla/lidar            &#8594;    lidar_detector     &#8594;   /carla/detections   &#8594;   boxes
+  /carla/hero/rgb_front         (PCL clustering)         /carla/detections_markers
+  /carla/hero/rgb_aerial                                                    cameras</div>
+<p>The bag no longer provides <code>/carla/detections</code> at all. That topic is now produced on the board by the perception node, from the same point cloud the radar view draws.</p>
+
+<h2>2. Seeing it run</h2>
+<p>Here is the HMI inside a built AGL image, running on the emulated target. The point cloud is in blue, and the green boxes over it are the live detections. The chips read 454 points in the frame, 11 objects found this tick, a 25 Hz view, and a live link.</p>
+<figure class="shot">
+  <img src="week19-live.png" alt="The AGL LiDAR dashboard running on-target: blue point cloud with green detection boxes computed live by the on-device node, plus forward and aerial camera panels. Header chips read 454 pts, 11 obj, 25 Hz, LIVE.">
+  <figcaption>The dashboard inside the AGL image, with the detector running on the device. The green boxes are not from the recording; the on-board node computed them from the raw cloud and published them over rosbridge, same as a real sensor feed would.</figcaption>
+</figure>
+
+<h2>3. Proving it is live, not replayed</h2>
+<p>A screenshot of boxes looks the same whether they were replayed or computed on the spot, so the real test is to ask the running system who is publishing them. On the booted image, with the bag playing only the raw streams, the answer is the node, not the recording:</p>
+<pre><code><span class="c"># who is publishing the detections?</span>
+$ ros2 topic info /carla/detections --verbose
+Type: vision_msgs/msg/Detection3DArray
+<span class="g">Publisher count: 1</span>
+  Node name: <span class="g">lidar_detector</span>      <span class="c"># the on-device node, not the bag</span>
+
+<span class="c"># and the marker topic only exists because the node is running</span>
+$ ros2 topic hz /carla/detections
+average rate: <span class="g">30.8</span>
+$ ros2 topic hz /carla/lidar
+average rate: 28.0</code></pre>
+<p>Two things confirm it. The publisher of <code>/carla/detections</code> is the <code>lidar_detector</code> node, and the <code>/carla/detections_markers</code> topic exists at all, which it never did in the recording. The boxes are being made on the target.</p>
+
+<h2>4. How it is packaged</h2>
+<p>The point of doing this inside AGL, rather than in a loose script, is that it builds and installs the same way every other component does. Three pieces make it work:</p>
+<ul class="clean">
+  <li><strong>A perception package.</strong> The node is a small ROS 2 package that subscribes to the LiDAR cloud, clusters it with PCL, and publishes <code>Detection3DArray</code> boxes plus a marker array for visualization.</li>
+  <li><strong>A build recipe.</strong> A new recipe compiles that package and pulls in PCL as a dependency, so a single image build produces the node already installed under the ROS prefix. PCL was already available in the ROS layers, so nothing new had to be vendored.</li>
+  <li><strong>A live-by-default launcher.</strong> The demo's start-up script now runs the node and replays only the raw streams. A <code>DEMO_MODE=replay</code> switch keeps the old pure-replay path for any image built without the perception package, so the demo still degrades gracefully.</li>
+</ul>
+<p>The result is that an image built with the perception package in it boots straight into live, on-device detection, with no manual steps and no shell.</p>
+
+<h2 id="next">5. Where it stands, and what is next</h2>
+<p><strong>Status:</strong> on-target perception is verified in a built AGL image on the emulated target. The detector runs on boot and the HMI draws its live output.</p>
+<ul class="clean">
+  <li><strong>Upstream the perception recipe.</strong> The node recipe and the launcher change go up for review next, so the live demo is reproducible from a clean build by anyone.</li>
+  <li><strong>Carry it onto the Jetson.</strong> The same image, now with the detector in it, is the one to bring up on the Jetson Orin Nano board. That is the remaining hardware step.</li>
+  <li><strong>Fold in the new HMI.</strong> The object list, class colors, and telemetry strip drafted last week are still queued to land in the app, now on top of a genuinely live data source.</li>
+</ul>
+<p>The headline is simple: perception is no longer something the recording did earlier, it is something the device does now.</p>
+
+<h2>Links</h2>
+<ul class="clean">
+  <li><strong>Application repository:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>.</li>
+  <li><strong>Perception node:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app/tree/main/perception">github.com/shauryarane05/agl-lidar-hmi-app/perception</a>.</li>
+</ul>
+
+<div class="pager">
+  <a href="week18.html">&larr; Week 18</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 19</p></div>
+</div>
+</body>
+</html>
