@@ -63,7 +63,7 @@
 </figure>
 
 <h2>3. Onto the hardware</h2>
-<p>The same image is now built for the real embedded target. The <code>agl-ivi-demo-flutter</code> image for the <strong>Jetson Orin Nano</strong>, with the demo and the perception node baked in, builds cleanly and produces a flashable bundle. Getting there meant working around two problems on this branch that had nothing to do with the demo: AGL's own reference home screen does not currently build (a Flutter package lock it pins cannot be resolved offline), and the Jetson machine template still referenced an old disk-image type that this board has no layout for. With both handled, the image builds end to end into the tegra flash bundle.</p>
+<p>The same image is now built for the real embedded target. The <code>agl-ivi-demo-flutter</code> image for the <strong>Jetson Orin Nano</strong>, with the demo and the perception node baked in, builds cleanly and produces a flashable bundle.</p>
 <figure class="shot">
   <img src="week22-jetson.jpg" alt="A Jetson Orin Nano developer kit on a desk next to a laptop, wired with jumper leads to the recovery header, a USB-C cable to the laptop, and the power lead, set up for flashing.">
   <figcaption>The Jetson Orin Nano on the bench, wired for bring-up: the recovery jumper on the button header, USB-C to the laptop, and power. The built image is on the laptop, ready to flash.</figcaption>
