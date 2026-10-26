@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Week 20: Upstream, and onto the board</title>
-<meta name="description" content="Week 20: the whole implementation is now in AGL. Two changes are merged and two more are up for review, the full image is built for the Jetson Orin Nano, and the board is on the bench for bring-up. Clear documentation is the focus for the next few days.">
+<title>Week 22: Upstream, and onto the board</title>
+<meta name="description" content="Week 22: the whole implementation is now in AGL. Two changes are merged and two more are up for review, the full image is built for the Jetson Orin Nano, and the board is on the bench for bring-up. Clear documentation is the focus for the next few days.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -30,11 +30,11 @@
   <a class="navlink" href="week17.html">Week 17</a>
   <a class="navlink" href="week18.html">Week 18</a>
   <a class="navlink" href="week19.html">Week 19</a>
-  <a class="navlink active" href="week20.html">Week 20</a>
+  <a class="navlink active" href="week22.html">Week 22</a>
 </div></nav>
 
 <header class="hero"><div class="inner">
-  <div class="kicker">Week 20 &middot; Coding Period</div>
+  <div class="kicker">Week 22 &middot; Coding Period</div>
   <h1>Upstream, and onto the board</h1>
   <p class="sub">The implementation is complete and now lives in AGL. Every piece of the demo, from the Flutter app to the on-device perception node, is pushed upstream. The full image is built for the Jetson Orin Nano, and the board is on the bench for bring-up. The focus for the next few days is clear, complete documentation.</p>
 </div></header>
@@ -65,7 +65,7 @@
 <h2>3. Onto the hardware</h2>
 <p>The same image is now built for the real embedded target. The <code>agl-ivi-demo-flutter</code> image for the <strong>Jetson Orin Nano</strong>, with the demo and the perception node baked in, builds cleanly and produces a flashable bundle. Getting there meant working around two problems on this branch that had nothing to do with the demo: AGL's own reference home screen does not currently build (a Flutter package lock it pins cannot be resolved offline), and the Jetson machine template still referenced an old disk-image type that this board has no layout for. With both handled, the image builds end to end into the tegra flash bundle.</p>
 <figure class="shot">
-  <img src="week20-jetson.jpg" alt="A Jetson Orin Nano developer kit on a desk next to a laptop, wired with jumper leads to the recovery header, a USB-C cable to the laptop, and the power lead, set up for flashing.">
+  <img src="week22-jetson.jpg" alt="A Jetson Orin Nano developer kit on a desk next to a laptop, wired with jumper leads to the recovery header, a USB-C cable to the laptop, and the power lead, set up for flashing.">
   <figcaption>The Jetson Orin Nano on the bench, wired for bring-up: the recovery jumper on the button header, USB-C to the laptop, and power. The built image is on the laptop, ready to flash.</figcaption>
 </figure>
 <p>Flashing and bringing the demo up on the board display is the immediate next step. That is the one thing still to confirm on real hardware: a clean build is not the same as a clean first boot, and the usual embedded unknowns are the display bring-up and the compositor. Until the board boots into the running demo, the honest claim is that the image builds into a flashable artifact and the pipeline is proven on an AGL image, not that it is verified on the Jetson.</p>
@@ -90,7 +90,7 @@
   <a href="index.html">Home &rarr;</a>
 </div>
 
-<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 20</p></div>
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 22</p></div>
 </div>
 </body>
 </html>
