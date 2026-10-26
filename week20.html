@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week 20: Upstream, and onto the board</title>
+<meta name="description" content="Week 20: the whole implementation is now in AGL. Two changes are merged and two more are up for review, the full image is built for the Jetson Orin Nano, and the board is on the bench for bring-up. Clear documentation is the focus for the next few days.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="ninner">
+  <div class="brand">AGL &times; CARLA &middot; <span>GSoC 2026</span></div>
+  <a class="navlink" href="index.html">Home</a>
+  <a class="navlink" href="community-bonding.html">Community Bonding</a>
+  <a class="navlink" href="week1.html">Week 1</a>
+  <a class="navlink" href="week2.html">Week 2</a>
+  <a class="navlink" href="week3.html">Week 3</a>
+  <a class="navlink" href="week4.html">Week 4</a>
+  <a class="navlink" href="week5.html">Week 5</a>
+  <a class="navlink" href="week6.html">Week 6</a>
+  <a class="navlink" href="week7.html">Week 7</a>
+  <a class="navlink" href="week8.html">Week 8</a>
+  <a class="navlink" href="week9.html">Week 9</a>
+  <a class="navlink" href="week10.html">Week 10</a>
+  <a class="navlink" href="week11.html">Week 11</a>
+  <a class="navlink" href="week12.html">Week 12</a>
+  <a class="navlink" href="week13.html">Week 13</a>
+  <a class="navlink" href="week14.html">Week 14</a>
+  <a class="navlink" href="week16.html">Week 16</a>
+  <a class="navlink" href="week17.html">Week 17</a>
+  <a class="navlink" href="week18.html">Week 18</a>
+  <a class="navlink" href="week19.html">Week 19</a>
+  <a class="navlink active" href="week20.html">Week 20</a>
+</div></nav>
+
+<header class="hero"><div class="inner">
+  <div class="kicker">Week 20 &middot; Coding Period</div>
+  <h1>Upstream, and onto the board</h1>
+  <p class="sub">The implementation is complete and now lives in AGL. Every piece of the demo, from the Flutter app to the on-device perception node, is pushed upstream. The full image is built for the Jetson Orin Nano, and the board is on the bench for bring-up. The focus for the next few days is clear, complete documentation.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout win">
+  <p><span class="label fix" style="margin:0">MILESTONE</span> &nbsp;The whole implementation is in AGL. Two changes are <strong>merged</strong> and two more are <strong>up for review</strong>, so the entire demo, including the perception node that runs on the device, can be built from AGL's own tree with no out-of-tree pieces.</p>
+</div>
+
+<h2>1. Everything is upstream</h2>
+<p>Over the course of the project the demo grew from a loose set of scripts into a set of proper AGL recipes. As of this week all of that work is submitted to <code>meta-agl-devel</code>:</p>
+<ul class="clean">
+  <li><strong>Merged:</strong> the application recipe, <code>agl-lidar-demo</code>, which builds the Flutter HMI, ships the recorded clip, and installs the demo launcher. <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/31990">Gerrit 31990</a>.</li>
+  <li><strong>Merged:</strong> the autostart unit, so a freshly flashed image comes up with the local rosbridge and the looped bag replay running, no shell needed. <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32069">Gerrit 32069</a>.</li>
+  <li><strong>In review:</strong> the <code>lidar-detector</code> recipe, which packages the PCL perception node so it builds and installs with the image. <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32137">Gerrit 32137</a>.</li>
+  <li><strong>In review:</strong> the change that wires the detector into the demo, so the image detects on the target by default. <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32138">Gerrit 32138</a>.</li>
+</ul>
+<p>The two review changes are stacked, the node recipe first and the wiring on top, so continuous integration builds them together. Once they land, anyone can build the complete, self-computing demo from a clean checkout.</p>
+
+<h2>2. The pipeline it ships</h2>
+<p>This is the result those recipes produce: the dashboard inside a built AGL image, with the perception node running on-target. The point cloud is in blue and the green boxes over it are the live detections, computed on the device from the raw cloud and published over rosbridge. The chips read the point count, the objects found this tick, the view rate, and a live link.</p>
+<figure class="shot">
+  <img src="week19-live.png" alt="The AGL LiDAR dashboard: a blue top-down point cloud with green 3D detection boxes computed live by the on-device node, plus forward and aerial camera panels. Header chips read 454 pts, 11 obj, 25 Hz, LIVE.">
+  <figcaption>The demo the upstream recipes build: live, on-device perception feeding the HMI. Verified in a built AGL image on the emulated target.</figcaption>
+</figure>
+
+<h2>3. Onto the hardware</h2>
+<p>The same image is now built for the real embedded target. The <code>agl-ivi-demo-flutter</code> image for the <strong>Jetson Orin Nano</strong>, with the demo and the perception node baked in, builds cleanly and produces a flashable bundle. Getting there meant working around two problems on this branch that had nothing to do with the demo: AGL's own reference home screen does not currently build (a Flutter package lock it pins cannot be resolved offline), and the Jetson machine template still referenced an old disk-image type that this board has no layout for. With both handled, the image builds end to end into the tegra flash bundle.</p>
+<figure class="shot">
+  <img src="week20-jetson.jpg" alt="A Jetson Orin Nano developer kit on a desk next to a laptop, wired with jumper leads to the recovery header, a USB-C cable to the laptop, and the power lead, set up for flashing.">
+  <figcaption>The Jetson Orin Nano on the bench, wired for bring-up: the recovery jumper on the button header, USB-C to the laptop, and power. The built image is on the laptop, ready to flash.</figcaption>
+</figure>
+<p>Flashing and bringing the demo up on the board display is the immediate next step. That is the one thing still to confirm on real hardware: a clean build is not the same as a clean first boot, and the usual embedded unknowns are the display bring-up and the compositor. Until the board boots into the running demo, the honest claim is that the image builds into a flashable artifact and the pipeline is proven on an AGL image, not that it is verified on the Jetson.</p>
+
+<h2 id="next">4. What is next</h2>
+<ul class="clean">
+  <li><strong>Documentation.</strong> The focus for the next few days is a clear, complete write-up: a reproduction guide that covers the build, the recipes, the known pitfalls, and the flash, so the whole project can be rebuilt from scratch by someone new.</li>
+  <li><strong>Verify on the Jetson.</strong> Flash the board, bring up the display, and confirm the live demo runs on the hardware. A screenshot from the board itself will go up the moment it does.</li>
+  <li><strong>Land the review changes.</strong> See the two open changes through review so the on-device perception is merged alongside the rest.</li>
+</ul>
+
+<h2>Links</h2>
+<ul class="clean">
+  <li><strong>Application repository:</strong> <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>.</li>
+  <li><strong>Merged:</strong> <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/31990">Gerrit 31990</a> &middot; <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32069">Gerrit 32069</a>.</li>
+  <li><strong>In review:</strong> <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32137">Gerrit 32137</a> &middot; <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32138">Gerrit 32138</a>.</li>
+</ul>
+
+<div class="pager">
+  <a href="week19.html">&larr; Week 19</a>
+  <div class="spacer"></div>
+  <a href="index.html">Home &rarr;</a>
+</div>
+
+<div class="footer"><p>GSoC 2026 &middot; Automotive Grade Linux &middot; Week 20</p></div>
+</div>
+</body>
+</html>
