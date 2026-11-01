@@ -146,7 +146,7 @@ figure.shot img.portrait{max-height:460px;width:auto;margin:0 auto}
   <p>Automotive Grade Linux is a Linux Foundation project building an open software stack for production vehicles. This project adds a complete, reproducible LiDAR perception demo to that stack, from the raw sensor data all the way to the in-vehicle display. The deliverable splits in two: the Flutter HMI application in its own repository, and the Yocto integration that packages the app, a ROS 2 perception node, and the data pipeline into the AGL image, upstreamed to AGL Gerrit. The constraint that shaped everything was that it had to run with no live simulator, no GPU, and no network, so it works as a dependable demonstration anywhere.</p>
   <figure class="shot">
     <img src="week17-cameras.png" alt="The full AGL LiDAR dashboard: a top-down LiDAR radar with green detection boxes on the left, and forward and aerial camera views of the CARLA street scene on the right">
-    <figcaption><strong>The full dashboard.</strong> The top-down LiDAR view with detection boxes on the left, and the forward and aerial camera feeds showing the CARLA scene on the right. The badges read the live point count, objects found, update rate, and link status.</figcaption>
+    <figcaption><strong>The HMI running on the board.</strong> A live capture from the Jetson: the point cloud, the radar sweep, and the green detection boxes update in real time as the on-target detector runs, alongside the forward and aerial camera feeds.</figcaption>
   </figure>
 
   <h2 id="architecture"><span class="s">02</span> How the pipeline fits together</h2>
