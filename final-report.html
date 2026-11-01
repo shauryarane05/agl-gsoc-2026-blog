@@ -29,7 +29,7 @@
 @media(max-width:420px){.rmeta{grid-template-columns:1fr}}
 
 /* at-a-glance stat cards */
-.rstats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0 8px}
+.rstats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:24px 0 8px}
 @media(max-width:620px){.rstats{grid-template-columns:1fr 1fr}}
 .rstat{border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:16px 16px 14px}
 .rstat .n{font-size:1.5rem;font-weight:700;color:#e6edf3;letter-spacing:-.01em}
@@ -117,8 +117,6 @@ figure.shot img.portrait{max-height:460px;width:auto;margin:0 auto}
 
   <div class="rstats">
     <div class="rstat"><div class="n">11</div><div class="l">Upstream changes</div></div>
-    <div class="rstat"><div class="n">~30 Hz</div><div class="l">On-device detection</div></div>
-    <div class="rstat"><div class="n">0</div><div class="l">GPU / network needed</div></div>
     <div class="rstat"><div class="n">Orin Nano</div><div class="l">aarch64 target</div></div>
   </div>
 
@@ -169,6 +167,14 @@ rosbridge server :9090       WebSocket / JSON
    v
 Flutter HMI (agl_lidar_demo) top-down cloud + boxes + front & aerial cameras</div>
   <p>The detector is a classic PCL pipeline. What matters is where it runs: on the target, from the raw cloud, at around 30 hertz, not replayed from the bag. It publishes <code>vision_msgs/Detection3DArray</code> on <code>/carla/detections</code> plus cube markers on <code>/carla/detections_markers</code>, the exact contract the HMI already consumes. The app is wired to the message, not to the algorithm, so a learned detector could replace the clustering later without touching the dashboard.</p>
+  <p>The detector runs a fixed sequence of PCL filters on every frame:</p>
+  <ul class="clean">
+    <li><strong>Voxel-grid downsample</strong> (0.2 m leaf): thins the roughly twelve thousand points per frame down to a manageable set so the later stages stay fast.</li>
+    <li><strong>Pass-through crop</strong> (z from -2.0 to 3.0 m): keeps the slab around the road and drops returns far above or below it.</li>
+    <li><strong>RANSAC ground-plane removal</strong> (0.3 m distance threshold): fits the largest flat plane, the road, and removes it, so the objects standing on it stop being connected through the ground.</li>
+    <li><strong>Euclidean clustering</strong> (0.6 m tolerance, 15 to 25000 points): groups the remaining points by proximity, and each surviving group becomes one object.</li>
+  </ul>
+  <p>Each cluster becomes an axis-aligned 3D box. Ground removal is the stage that makes clustering work at all: while every point is connected through the road surface, proximity grouping just returns one giant blob. The node reports clusters, not classified objects, so a car, a pedestrian, a pole, and a run of roadside wall all come back as boxes; size filtering and a classifier are the natural next step.</p>
   <figure class="shot">
     <img src="week13-perception.gif" alt="Animated bird's-eye view: grey LiDAR points with green detection boxes appearing around the ego vehicle across frames">
     <figcaption><strong>What the detector produces.</strong> Grey points are the raw CARLA LiDAR cloud, the red marker at the origin is the ego vehicle, and each green box is one clustered object. The count changes frame to frame as objects come in and out of range.</figcaption>
