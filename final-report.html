@@ -104,7 +104,7 @@ figure.shot img.portrait{max-height:460px;width:auto;margin:0 auto}
   <div class="rcover">
     <div class="doclabel">Final Report · Google Summer of Code 2026</div>
     <h1>ROS-Embedded LiDAR Perception in CARLA with AGL Visualization</h1>
-    <p class="rsub">A complete, reproducible LiDAR perception demo for Automotive Grade Linux: a recorded CARLA clip becomes 3D object detections computed on the embedded target, drawn live in the vehicle's Flutter dashboard. Fully offline, no GPU, no network. Now verified running on the Jetson Orin Nano.</p>
+    <p class="rsub">A LiDAR perception demo for Automotive Grade Linux. A recorded CARLA clip is turned into 3D object detections on the embedded target and drawn in the vehicle's Flutter dashboard, running offline on the Jetson Orin Nano.</p>
     <dl class="rmeta">
       <div><dt>Organization</dt><dd>Automotive Grade Linux</dd></div>
       <div><dt>Contributor</dt><dd>Shaurya Rane</dd></div>
@@ -204,19 +204,19 @@ Flutter HMI (agl_lidar_demo) top-down cloud + boxes + front & aerial cameras</di
   <p class="lead">Five pieces, from the app down to the board bring-up, all contributed upstream to AGL Gerrit.</p>
 
   <h3>1. Flutter HMI application</h3>
-  <p>A Flutter app that renders a top-down LiDAR view (range rings, points coloured by distance), overlays the 3D detection boxes, and shows the forward and aerial camera feeds, all fed from a rosbridge WebSocket. It is built on the AGL app template so the platform launches it as a home-screen tile. Source: <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">agl-lidar-hmi-app</a>, packaged upstream as <code>agl-lidar-demo</code>.</p>
+  <p>Built the dashboard in Flutter. It opens one rosbridge WebSocket, subscribes to four topics, and decodes each <code>PointCloud2</code> frame by hand from its base64 payload (reading x, y, z and intensity at their byte offsets), drops ground and roof returns by height, and projects the rest to a top-down view. A custom painter draws the cloud in batched colour bands, the 3D detection boxes (recovering each box heading from its quaternion), a radar sweep and the ego vehicle, while two panels decode the compressed camera frames. It is wired to the message type rather than the algorithm, and built on the AGL app template so the platform launches it as a home-screen tile. Source: <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">agl-lidar-hmi-app</a>, packaged upstream as <code>agl-lidar-demo</code>.</p>
 
   <h3>2. On-target perception node</h3>
-  <p>A C++ ROS 2 node, <code>lidar_detector</code>, packaged with a Yocto recipe, that runs the PCL detection pipeline on the device. This is the step that moved the demo from replaying pre-recorded boxes to computing detections live on the target, the embedded-perception goal in the project title.</p>
+  <p>Wrote the C++ ROS 2 node (<code>lidar_detector</code>) that runs the PCL pipeline on the device, turning each raw cloud into axis-aligned 3D boxes published as <code>vision_msgs/Detection3DArray</code>, and packaged it with an <code>ament_cmake</code> recipe so a single image build installs it ready to run. This is the step that moved the demo from replaying pre-recorded boxes to computing detections live on the target, the embedded-perception goal in the project title.</p>
 
   <h3>3. Self-contained data pipeline</h3>
-  <p>A recorded CARLA rosbag plus a systemd service that starts a local rosbridge and loop-plays the raw sensor streams, so the whole demo runs offline with no simulator and no network. A <code>DEMO_MODE</code> switch keeps a pure-replay path for images built without the perception package, so the demo degrades gracefully.</p>
+  <p>Recorded a CARLA LiDAR-and-cameras clip into a ros2 bag, and wrote the systemd service and launcher that on boot start a local rosbridge, replay only the raw sensor streams, and run the detector, so the whole demo comes up offline with no simulator, GPU or network. Added a <code>DEMO_MODE</code> switch that keeps a pure-replay path for images built without the perception package, so the demo degrades gracefully.</p>
 
   <h3>4. Jetson board bring-up</h3>
-  <p>A clean machine template for the <code>jetson-orin-nano-devkit-nvme</code> target and a build-unblocking fix, so the full AGL IVI image builds, flashes to the Orin Nano, and renders on its display.</p>
+  <p>Wrote the machine template for the <code>jetson-orin-nano-devkit-nvme</code> target and the build-unblocking fix, built the full AGL IVI image for it, and flashed and brought it up on the board, so the demo runs on real embedded hardware.</p>
 
   <h3>5. Upstream integration fixes</h3>
-  <p>Four fixes to the AGL ROS 2 layer that were required to make the image build clean and the backend run on the target: a packagegroup parse fix, a missing layer dependency, valid SPDX licenses for the rosbridge suite, and a cross-compile fix for the rosbag2 Python bindings. Detailed in section 07.</p>
+  <p>Debugged and fixed the four things that stopped the image building clean and the backend running on the target: a packagegroup parse error, a missing layer dependency, invalid SPDX licenses across the rosbridge suite, and a cross-compile bug that named the rosbag2 Python bindings with the build-host architecture. Detailed in section 07.</p>
 
   <h2 id="contributions"><span class="s">05</span> Every change, with links</h2>
   <p class="lead">All work is public. Code changes went to AGL Gerrit (user <code>shauryarane05</code>); the HMI app lives in its own repository.</p>
