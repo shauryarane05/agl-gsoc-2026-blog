@@ -192,7 +192,7 @@ Flutter HMI (agl_lidar_demo) top-down cloud + boxes + front & aerial cameras</di
     <img class="portrait" src="jetson-hardware.gif" alt="The AGL LiDAR demo running live on the Jetson Orin Nano's portrait display, recorded on the bench">
     <figcaption><strong>Running on the board.</strong> The HMI live on the Jetson's own display: the point cloud, the radar sweep, and the green detection boxes, recorded on the bench.</figcaption>
   </figure>
-  <p>Getting there was the usual embedded gap between a clean build and a clean first boot. The image built and flashed on the first proper attempt, but the backend crash-looped on boot, the SPDX license step had already stopped an earlier build dead at 77 percent, and the board's display and clock both needed attention before the dashboard would come up. Those are the problems worth documenting, in section 07.</p>
+  <p>Getting there was the usual embedded gap between a clean build and a clean first boot. The image built and flashed on the first proper attempt, but the backend crash-looped on boot, and the SPDX license step had already stopped an earlier build dead at 77 percent. Those are the problems worth documenting, in section 07.</p>
 
   <h2 id="deliverables"><span class="s">04</span> What was built, by component</h2>
   <p class="lead">Five pieces, from the app down to the board bring-up, all contributed upstream to AGL Gerrit.</p>
@@ -254,10 +254,6 @@ ros2 topic info /carla/detections --verbose   <span class="c"># publisher: lidar
   <p>A missing trailing backslash in the ROS 2 packagegroup, and a missing <code>meta-python</code> entry in the layer list, each broke parsing for any image enabling the agl-ros2 feature.</p>
   <p><span class="label fix">fix</span> Two small corrections. (<a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32155">32155</a>, <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32156">32156</a>)</p>
 
-  <h3>Two board-level surprises in the display stack</h3>
-  <p>The compositor's hardware-cursor path aborts on the Tegra DRM driver, so there is no visible pointer on the home screen on this build; you drive the demo through the shell activator instead. And the devkit has no RTC battery and no NTP client, so it boots at the year 1970, which makes the HMI's TLS connection to the data broker fail with "certificate is not yet valid" until the clock is set. That one took a while to see, because nothing in the logs says the clock is wrong, only that the certificate is from the future.</p>
-  <p><span class="label note">workaround</span> Drive the app through the shell activator (no cursor needed), and set the clock before the HMI starts. The cursor abort is a candidate upstream issue, and a boot-time clock-sanity service is on the list below.</p>
-
   <div class="callout">
     <p><strong>The through line.</strong> On a project like this the perception algorithm is the easy part. The clustering and the bounding boxes are a solved problem. The time went into the seams, the places where a generated ROS 2 layer, a vendor board support package, and a Flutter shell are supposed to meet and do not. The most useful thing I shipped was the handful of small fixes that let the next person build the image on the first try.</p>
   </div>
@@ -266,7 +262,7 @@ ros2 topic info /carla/detections --verbose   <span class="c"># publisher: lidar
   <ul class="clean">
     <li><strong>Done:</strong> the HMI app, on-target perception, the offline data pipeline, a full image build and flash to the Orin Nano, and verified live detections at around 30 Hz drawn on the board's own display.</li>
     <li><strong>Upstream:</strong> the board template and build unblock in <code>meta-agl</code>, and the four agl-ros2 integration fixes in <code>meta-agl-devel</code>. The last commit of the summer is the rosbag2-py fix, <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32178">32178</a>.</li>
-    <li><strong>Future work:</strong> file the Tegra cursor abort as a compositor issue; add a boot-time clock-sanity service so the 1970 problem never bites again; fold in the drafted HMI (object list, class colours, telemetry strip) on top of the live source; and, given time, extend the detector with tracking so objects keep a stable identity across frames.</li>
+    <li><strong>Future work:</strong> fold in the drafted HMI (an object list, colour-coded classes, a telemetry strip, and a proximity ring) on top of the live source; add a learned detector such as PointPillars, which publishes the same Detection3DArray so the dashboard gains classified cars, pedestrians, and cyclists with no change to the HMI; and extend the detector with tracking so objects keep a stable identity across frames.</li>
   </ul>
 
   <h2 id="thanks">Acknowledgements</h2>
