@@ -6,6 +6,71 @@
 <title>Final Report · ROS-Embedded LiDAR Perception on AGL</title>
 <meta name="description" content="GSoC 2026 final report: a reproducible LiDAR perception demo for Automotive Grade Linux, from a recorded CARLA clip to live on-device detections drawn in the Flutter dashboard, verified on the Jetson Orin Nano.">
 <link rel="stylesheet" href="style.css">
+<style>
+/* ---- Final report: a document-style treatment layered on the blog theme,
+        scoped to .report so the rest of the site is untouched ---- */
+.report{max-width:860px;margin:0 auto;padding:0 22px 120px}
+
+/* cover masthead, deliberately not the blog hero */
+.rcover{position:relative;border:1px solid var(--border);border-radius:16px;overflow:hidden;
+  background:linear-gradient(180deg,rgba(88,166,255,.10),transparent 55%),var(--panel);
+  padding:34px 30px 30px;margin:36px 0 8px}
+.rcover::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
+.rcover .doclabel{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.rcover h1{font-size:2.15rem;line-height:1.12;margin:12px 0 10px;letter-spacing:-.02em}
+.rcover .rsub{color:var(--muted);font-size:1.08rem;margin:0 0 24px;max-width:64ch}
+.rmeta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.rmeta>div{background:var(--panel2);padding:11px 14px}
+.rmeta dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.rmeta dd{margin:4px 0 0;font-size:.93rem;color:#e6edf3}
+.rmeta dd a{color:var(--accent)}
+@media(max-width:620px){.rmeta{grid-template-columns:1fr 1fr}}
+@media(max-width:420px){.rmeta{grid-template-columns:1fr}}
+
+/* at-a-glance stat cards */
+.rstats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0 8px}
+@media(max-width:620px){.rstats{grid-template-columns:1fr 1fr}}
+.rstat{border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:16px 16px 14px}
+.rstat .n{font-size:1.5rem;font-weight:700;color:#e6edf3;letter-spacing:-.01em}
+.rstat .n.g{color:var(--green)} .rstat .n.y{color:var(--yellow)}
+.rstat .l{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:5px}
+
+/* contents */
+.rtoc{border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:16px 20px 14px;margin:26px 0}
+.rtoc .h{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.rtoc ol{margin:0;padding:0;list-style:none;columns:2;column-gap:28px}
+@media(max-width:560px){.rtoc ol{columns:1}}
+.rtoc li{padding:4px 0;break-inside:avoid}
+.rtoc .num{font-family:var(--mono);color:var(--accent);margin-right:9px;font-size:.82rem}
+
+/* abstract */
+.rabstract{border:1px solid var(--border);border-left:4px solid var(--accent);background:var(--panel2);
+  border-radius:8px;padding:2px 20px;margin:26px 0}
+.rabstract .h{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-top:16px}
+
+/* numbered section headers, distinct from the blog's plain h2 */
+.report h2{position:relative;border-bottom:none;padding:0 0 12px;margin:58px 0 8px;font-size:1.5rem;
+  display:flex;align-items:baseline;gap:12px}
+.report h2 .s{font-family:var(--mono);font-size:.95rem;color:var(--accent);font-weight:600;flex:none}
+.report h2::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--border)}
+.report .lead{color:var(--muted);font-size:1.04rem;margin:16px 0 4px}
+
+/* status pills reused in deliverables and the ledger */
+.pill{display:inline-block;font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;
+  padding:2px 8px;border-radius:20px;vertical-align:middle;white-space:nowrap}
+.pill.ok{background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.35)}
+.pill.rev{background:rgba(210,153,34,.15);color:var(--yellow);border:1px solid rgba(210,153,34,.35)}
+.report table td .pill{margin:0}
+.report table td.c{text-align:center}
+
+/* two-up figure row for the HMI shots */
+.rfigs{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}
+@media(max-width:640px){.rfigs{grid-template-columns:1fr}}
+.rfigs figure.shot{margin:0}
+/* portrait board photo kept to a sane height */
+figure.shot img.portrait{max-height:460px;width:auto;margin:0 auto}
+</style>
 </head>
 <body>
 <nav class="top"><div class="ninner">
@@ -34,28 +99,55 @@
   <a class="navlink active" href="final-report.html">Final Report</a>
 </div></nav>
 
-<header class="hero"><div class="inner">
-  <div class="kicker">Final Report · Google Summer of Code 2026 · Automotive Grade Linux</div>
-  <h1>ROS-Embedded LiDAR Perception in CARLA with AGL Visualization</h1>
-  <p class="sub">The closing summary: what the project set out to do, what it delivers, every change and where it landed, and the integration problems that turned out to be the real work. Now verified running live on the Jetson Orin Nano.</p>
-  <div class="meta">Contributor: Shaurya Rane · Mentors: Jan-Simon Möller, Rob Woolley, Scott Murray</div>
-</div></header>
+<div class="report">
 
-<div class="wrap">
+  <div class="rcover">
+    <div class="doclabel">Final Report · Google Summer of Code 2026</div>
+    <h1>ROS-Embedded LiDAR Perception in CARLA with AGL Visualization</h1>
+    <p class="rsub">A complete, reproducible LiDAR perception demo for Automotive Grade Linux: a recorded CARLA clip becomes 3D object detections computed on the embedded target, drawn live in the vehicle's Flutter dashboard. Fully offline, no GPU, no network. Now verified running on the Jetson Orin Nano.</p>
+    <dl class="rmeta">
+      <div><dt>Organization</dt><dd>Automotive Grade Linux</dd></div>
+      <div><dt>Contributor</dt><dd>Shaurya Rane</dd></div>
+      <div><dt>Mentors</dt><dd>Jan-Simon Möller, Rob Woolley, Scott Murray</dd></div>
+      <div><dt>Target</dt><dd>Jetson Orin Nano (aarch64)</dd></div>
+      <div><dt>Stack</dt><dd>ROS 2 Humble · Yocto · Flutter</dd></div>
+      <div><dt>Code</dt><dd><a href="https://github.com/shauryarane05/agl-lidar-hmi-app">HMI app</a> &middot; <a href="https://gerrit.automotivelinux.org/gerrit/q/owner:ssranevjti@gmail.com">Gerrit</a></dd></div>
+    </dl>
+  </div>
 
-<p>This is the project's closing post. The weekly log tells the story in order, every bug and every reversal; this one steps back and states the result. It also closes the single thread Week 22 left open. That week ended with the image building into a flashable artifact for the Jetson but not yet verified on the board. Since then the board has been flashed, brought up, and confirmed running the demo live, and the screenshots below are captured from its own display.</p>
+  <div class="rstats">
+    <div class="rstat"><div class="n g">4</div><div class="l">Changes merged</div></div>
+    <div class="rstat"><div class="n y">6</div><div class="l">In review</div></div>
+    <div class="rstat"><div class="n">~30 Hz</div><div class="l">On-device detection</div></div>
+    <div class="rstat"><div class="n">0</div><div class="l">GPU / network needed</div></div>
+  </div>
 
-<div class="callout win">
-  <p><strong>Where it ended.</strong> The full <code>agl-ivi-demo-flutter</code> image builds from AGL's own tree, flashes to the Jetson Orin Nano, and boots into the demo with the perception node computing detections <em>on the device</em> at around 30 Hz. Four changes are merged upstream and six more are in review. The point cloud, the boxes, and the camera panels all render on the board's panel, driven by the on-target detector.</p>
-</div>
+  <div class="rabstract">
+    <div class="h">Abstract</div>
+    <p>This project adds a LiDAR perception demo to Automotive Grade Linux, the Linux Foundation's open software stack for production vehicles. The goal was a demo an AGL developer can build and run on real hardware from a single image, mirroring a production ADAS feature: a LiDAR point cloud is turned into 3D object detections on the embedded target, and those detections are drawn in the vehicle's Flutter human-machine interface. It had to run fully offline, with no live simulator, no GPU, and no network. The work split into the Flutter HMI application, a ROS 2 perception node, and the Yocto integration that packages both into the AGL image, all upstreamed to AGL Gerrit. The summary below states what was built, where every change landed, the integration problems that were the real work, and the demo running live on the Jetson Orin Nano.</p>
+  </div>
 
-<h2>What the project set out to do</h2>
-<p>Automotive Grade Linux is a Linux Foundation project building an open software stack for production vehicles. This project adds a complete, reproducible LiDAR perception demo to that stack, from the raw sensor data all the way to the in-vehicle display.</p>
-<p>The goal was a demo an AGL developer can build and run on real hardware from a single image, showing the shape of a production ADAS feature: a LiDAR point cloud is turned into 3D object detections on the embedded target, and those detections are drawn in the vehicle's Flutter human-machine interface. It had to run fully offline, with no live simulator, no GPU, and no network, so it works as a dependable demonstration anywhere. The deliverable splits in two: the Flutter HMI application in its own repository, and the Yocto integration that packages the app, a ROS 2 perception node, and the data pipeline into the AGL image, upstreamed to AGL Gerrit.</p>
+  <div class="rtoc">
+    <div class="h">Contents</div>
+    <ol>
+      <li><span class="num">01</span><a href="#overview">Overview and goals</a></li>
+      <li><span class="num">02</span><a href="#architecture">How the pipeline fits together</a></li>
+      <li><span class="num">03</span><a href="#hardware">Verified on the Jetson</a></li>
+      <li><span class="num">04</span><a href="#deliverables">What was built, by component</a></li>
+      <li><span class="num">05</span><a href="#contributions">Every change, with links</a></li>
+      <li><span class="num">06</span><a href="#reproduce">Reproduce it</a></li>
+      <li><span class="num">07</span><a href="#challenges">The integration problems</a></li>
+      <li><span class="num">08</span><a href="#next">Current state and what is next</a></li>
+    </ol>
+  </div>
 
-<h2>The pipeline, end to end</h2>
-<p>A recorded CARLA clip replays the raw sensor streams. A PCL node on the Jetson turns the point cloud into detections in real time. The HMI subscribes over a rosbridge WebSocket and draws them. Everything below runs on the board.</p>
-<div class="diagram">recorded CARLA clip (ros2 bag, sqlite3)
+  <h2 id="overview"><span class="s">01</span> Overview and goals</h2>
+  <p class="lead">A demo that comes up on its own, on real hardware, and shows the shape of a production perception feature end to end.</p>
+  <p>Automotive Grade Linux is a Linux Foundation project building an open software stack for production vehicles. This project adds a complete, reproducible LiDAR perception demo to that stack, from the raw sensor data all the way to the in-vehicle display. The deliverable splits in two: the Flutter HMI application in its own repository, and the Yocto integration that packages the app, a ROS 2 perception node, and the data pipeline into the AGL image, upstreamed to AGL Gerrit. The constraint that shaped everything was that it had to run with no live simulator, no GPU, and no network, so it works as a dependable demonstration anywhere.</p>
+
+  <h2 id="architecture"><span class="s">02</span> How the pipeline fits together</h2>
+  <p class="lead">A recorded CARLA clip replays the raw sensor streams. A PCL node on the board turns the point cloud into detections in real time. The HMI subscribes over a rosbridge WebSocket and draws them.</p>
+  <div class="diagram">recorded CARLA clip (ros2 bag, sqlite3)
    |
    v   raw sensor
 /carla/lidar                 sensor_msgs/PointCloud2
@@ -72,110 +164,118 @@ rosbridge server :9090       WebSocket / JSON
    |
    v
 Flutter HMI (agl_lidar_demo) top-down cloud + boxes + front & aerial cameras</div>
-<p>The detector is a classic PCL pipeline. What matters is where it runs: on the target, from the raw cloud, at around 30 hertz, not replayed from the bag. It publishes <code>vision_msgs/Detection3DArray</code> on <code>/carla/detections</code> plus cube markers on <code>/carla/detections_markers</code>, the exact contract the HMI already consumes. The app is wired to the message, not to the algorithm, so a learned detector could replace the clustering later without touching the dashboard.</p>
+  <p>The detector is a classic PCL pipeline. What matters is where it runs: on the target, from the raw cloud, at around 30 hertz, not replayed from the bag. It publishes <code>vision_msgs/Detection3DArray</code> on <code>/carla/detections</code> plus cube markers on <code>/carla/detections_markers</code>, the exact contract the HMI already consumes. The app is wired to the message, not to the algorithm, so a learned detector could replace the clustering later without touching the dashboard.</p>
+  <figure class="shot">
+    <img src="week13-perception.gif" alt="Animated bird's-eye view: grey LiDAR points with green detection boxes appearing around the ego vehicle across frames">
+    <figcaption><strong>What the detector produces.</strong> Grey points are the raw CARLA LiDAR cloud, the red marker at the origin is the ego vehicle, and each green box is one clustered object. The count changes frame to frame as objects come in and out of range.</figcaption>
+  </figure>
 
-<h2>Live on the Jetson</h2>
-<p>These are captured directly from the Jetson's display while the pipeline runs on the board. The badges (points, objects, hertz, LIVE) are driven by the on-target detector, frame by frame.</p>
+  <h2 id="hardware"><span class="s">03</span> Verified on the Jetson</h2>
+  <p class="lead">The screenshots below are captured from the Jetson's own display while the pipeline runs on the board. The badges (points, objects, hertz, LIVE) are driven by the on-target detector, frame by frame.</p>
+  <div class="rfigs">
+    <figure class="shot">
+      <img src="hmi-pointcloud.png" alt="The AGL LiDAR HMI on the Jetson: a top-down point cloud with green detection boxes and the front and aerial camera feeds">
+      <figcaption><strong>Live on the board.</strong> 694 points, 7 objects at 28 Hz, with the forward and aerial CARLA camera feeds.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="hmi-detections.png" alt="A second frame of the AGL LiDAR HMI with detection boxes on clustered returns near the ego vehicle">
+      <figcaption><strong>Detections on clustered returns.</strong> The green boxes are computed on the target from the raw cloud, not replayed.</figcaption>
+    </figure>
+  </div>
+  <figure class="shot">
+    <img class="portrait" src="week22-jetson.jpg" alt="The Jetson Orin Nano developer kit on the bench, wired with a recovery jumper, USB-C to the laptop, and power, ready to flash">
+    <figcaption><strong>The hardware.</strong> The Jetson Orin Nano developer kit on the bench during bring-up. The full <code>agl-ivi-demo-flutter</code> image builds from AGL's own tree, flashes to this board, and boots into the demo with the detector running on the device.</figcaption>
+  </figure>
+  <p>Getting there was the usual embedded gap between a clean build and a clean first boot. The image built and flashed on the first proper attempt, but the backend crash-looped on boot, the SPDX license step had already stopped an earlier build dead at 77 percent, and the board's display and clock both needed attention before the dashboard would come up. Those are the problems worth documenting, in section 07.</p>
 
-<figure class="shot">
-  <img src="hmi-pointcloud.png" alt="The AGL LiDAR HMI on the Jetson: a top-down point cloud with green detection boxes and the front and aerial camera feeds">
-  <figcaption><strong>Live point cloud and detections on the board.</strong> 694 points, 7 objects at 28 Hz, with the forward and aerial CARLA camera feeds alongside for context.</figcaption>
-</figure>
+  <h2 id="deliverables"><span class="s">04</span> What was built, by component</h2>
+  <p class="lead">Five pieces, from the app down to the board bring-up. Each landed upstream or is in review on AGL Gerrit.</p>
 
-<figure class="shot">
-  <img src="hmi-detections.png" alt="A second frame of the AGL LiDAR HMI with detection boxes on clustered returns near the ego vehicle">
-  <figcaption><strong>Detections on clustered returns.</strong> The green boxes are computed on the target from the raw cloud, not replayed from the recording.</figcaption>
-</figure>
+  <h3>1. Flutter HMI application <span class="pill ok">done</span></h3>
+  <p>A Flutter app that renders a top-down LiDAR view (range rings, points coloured by distance), overlays the 3D detection boxes, and shows the forward and aerial camera feeds, all fed from a rosbridge WebSocket. It is built on the AGL app template so the platform launches it as a home-screen tile. Source: <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">agl-lidar-hmi-app</a>, packaged upstream as <code>agl-lidar-demo</code>.</p>
 
-<p>Getting there was the usual embedded gap between a clean build and a clean first boot. The image built and flashed on the first proper attempt, but the backend crash-looped on boot, the SPDX license step had already stopped an earlier build dead at 77 percent, and the board's display and clock both needed attention before the dashboard would come up. Those are the problems worth documenting, below.</p>
+  <h3>2. On-target perception node <span class="pill ok">merged</span></h3>
+  <p>A C++ ROS 2 node, <code>lidar_detector</code>, packaged with a Yocto recipe, that runs the PCL detection pipeline on the device. This is the step that moved the demo from replaying pre-recorded boxes to computing detections live on the target, the embedded-perception goal in the project title.</p>
 
-<h2>What was built, by component</h2>
-<p>Five pieces, from the app down to the board bring-up. Each landed upstream or is in review on AGL Gerrit.</p>
+  <h3>3. Self-contained data pipeline <span class="pill ok">merged</span></h3>
+  <p>A recorded CARLA rosbag plus a systemd service that starts a local rosbridge and loop-plays the raw sensor streams, so the whole demo runs offline with no simulator and no network. A <code>DEMO_MODE</code> switch keeps a pure-replay path for images built without the perception package, so the demo degrades gracefully.</p>
 
-<h3>1. Flutter HMI application <span class="label fix">done</span></h3>
-<p>A Flutter app that renders a top-down LiDAR view (range rings, points coloured by distance), overlays the 3D detection boxes, and shows the forward and aerial camera feeds, all fed from a rosbridge WebSocket. It is built on the AGL app template so the platform launches it as a home-screen tile. Source: <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">agl-lidar-hmi-app</a>, packaged upstream as <code>agl-lidar-demo</code>.</p>
+  <h3>4. Jetson board bring-up <span class="pill rev">in review</span></h3>
+  <p>A clean machine template for the <code>jetson-orin-nano-devkit-nvme</code> target and a build-unblocking fix, so the full AGL IVI image builds, flashes to the Orin Nano, and renders on its display.</p>
 
-<h3>2. On-target perception node <span class="label fix">merged</span></h3>
-<p>A C++ ROS 2 node, <code>lidar_detector</code>, packaged with a Yocto recipe, that runs the PCL detection pipeline on the device. This is the step that moved the demo from replaying pre-recorded boxes to computing detections live on the target, the embedded-perception goal in the project title.</p>
+  <h3>5. Upstream integration fixes <span class="pill rev">in review</span></h3>
+  <p>Four fixes to the AGL ROS 2 layer that were required to make the image build clean and the backend run on the target: a packagegroup parse fix, a missing layer dependency, valid SPDX licenses for the rosbridge suite, and a cross-compile fix for the rosbag2 Python bindings. Detailed in section 07.</p>
 
-<h3>3. Self-contained data pipeline <span class="label fix">merged</span></h3>
-<p>A recorded CARLA rosbag plus a systemd service that starts a local rosbridge and loop-plays the raw sensor streams, so the whole demo runs offline with no simulator and no network. A <code>DEMO_MODE</code> switch keeps a pure-replay path for images built without the perception package, so the demo degrades gracefully.</p>
+  <h2 id="contributions"><span class="s">05</span> Every change, with links</h2>
+  <p class="lead">All work is public. Code changes went to AGL Gerrit (user <code>shauryarane05</code>); the HMI app lives in its own repository.</p>
+  <table>
+    <tr><th>Change</th><th>Layer</th><th class="c">Status</th><th class="c">Gerrit</th></tr>
+    <tr><td>Add agl-lidar-demo application</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill ok">merged</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/31990">31990</a></td></tr>
+    <tr><td>Autostart the rosbag replay</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill ok">merged</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32069">32069</a></td></tr>
+    <tr><td>Add lidar-detector perception node recipe</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill ok">merged</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32137">32137</a></td></tr>
+    <tr><td>agl-lidar-demo: detect on-target</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill ok">merged</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32138">32138</a></td></tr>
+    <tr><td>Jetson Orin Nano machine template</td><td><code>meta-agl</code></td><td class="c"><span class="pill rev">in review</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl/+/32153">32153</a></td></tr>
+    <tr><td>Static GID for debug group (build unblock)</td><td><code>meta-agl</code></td><td class="c"><span class="pill rev">in review</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl/+/32152">32152</a></td></tr>
+    <tr><td>Fix packagegroup line continuation</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill rev">in review</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32155">32155</a></td></tr>
+    <tr><td>Add meta-python layer dependency</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill rev">in review</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32156">32156</a></td></tr>
+    <tr><td>rosbridge-suite: valid SPDX license</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill rev">in review</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32177">32177</a></td></tr>
+    <tr><td>rosbag2-py: fix Python extension SOABI</td><td><code>meta-agl-devel</code></td><td class="c"><span class="pill rev">in review</span></td><td class="c"><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32178">32178</a></td></tr>
+  </table>
+  <p>Four changes merged, six in review. Every change authored this summer is listed under <a href="https://gerrit.automotivelinux.org/gerrit/q/owner:ssranevjti@gmail.com">this Gerrit query</a>, and the HMI application is at <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>.</p>
 
-<h3>4. Jetson board bring-up <span class="label note">in review</span></h3>
-<p>A clean machine template for the <code>jetson-orin-nano-devkit-nvme</code> target and a build-unblocking fix, so the full AGL IVI image builds, flashes to the Orin Nano, and renders on its display.</p>
-
-<h3>5. Upstream integration fixes <span class="label note">in review</span></h3>
-<p>Four fixes to the AGL ROS 2 layer that were required to make the image build clean and the backend run on the target: a packagegroup parse fix, a missing layer dependency, valid SPDX licenses for the rosbridge suite, and a cross-compile fix for the rosbag2 Python bindings. Detailed below.</p>
-
-<h2>Every change, with links</h2>
-<p>All work is public. Code changes went to AGL Gerrit (user <code>shauryarane05</code>); the HMI app lives in its own repository.</p>
-<table>
-  <tr><th>Change</th><th>Layer</th><th>Status</th><th>Gerrit</th></tr>
-  <tr><td>Add agl-lidar-demo application</td><td><code>meta-agl-devel</code></td><td>merged</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/31990">31990</a></td></tr>
-  <tr><td>Autostart the rosbag replay</td><td><code>meta-agl-devel</code></td><td>merged</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32069">32069</a></td></tr>
-  <tr><td>Add lidar-detector perception node recipe</td><td><code>meta-agl-devel</code></td><td>merged</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32137">32137</a></td></tr>
-  <tr><td>agl-lidar-demo: detect on-target</td><td><code>meta-agl-devel</code></td><td>merged</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32138">32138</a></td></tr>
-  <tr><td>Jetson Orin Nano machine template</td><td><code>meta-agl</code></td><td>in review</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl/+/32153">32153</a></td></tr>
-  <tr><td>Static GID for debug group (build unblock)</td><td><code>meta-agl</code></td><td>in review</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl/+/32152">32152</a></td></tr>
-  <tr><td>Fix packagegroup line continuation</td><td><code>meta-agl-devel</code></td><td>in review</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32155">32155</a></td></tr>
-  <tr><td>Add meta-python layer dependency</td><td><code>meta-agl-devel</code></td><td>in review</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32156">32156</a></td></tr>
-  <tr><td>rosbridge-suite: valid SPDX license</td><td><code>meta-agl-devel</code></td><td>in review</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32177">32177</a></td></tr>
-  <tr><td>rosbag2-py: fix Python extension SOABI</td><td><code>meta-agl-devel</code></td><td>in review</td><td><a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32178">32178</a></td></tr>
-</table>
-<p>Four changes merged, six in review. Every change authored this summer is listed under <a href="https://gerrit.automotivelinux.org/gerrit/q/owner:ssranevjti@gmail.com">this Gerrit query</a>, and the HMI application is at <a href="https://github.com/shauryarane05/agl-lidar-hmi-app">github.com/shauryarane05/agl-lidar-hmi-app</a>.</p>
-
-<h2>Reproduce it</h2>
-<p>The demo ships under the AGL <code>agl-ros2</code> feature, on top of the Flutter IVI demo. From the top of the AGL tree:</p>
-<pre><code>source meta-agl/scripts/aglsetup.sh \
+  <h2 id="reproduce"><span class="s">06</span> Reproduce it</h2>
+  <p class="lead">The demo ships under the AGL <code>agl-ros2</code> feature, on top of the Flutter IVI demo. From the top of the AGL tree:</p>
+  <pre><code>source meta-agl/scripts/aglsetup.sh \
     -m jetson-orin-nano-devkit-nvme -b build-jetson-ivi \
     agl-demo agl-flutter agl-ros2
 bitbake agl-ivi-demo-flutter</code></pre>
-<p>Flash the image, boot, and the backend starts itself: a local rosbridge on port 9090, the <code>lidar_detector</code> node, and the bag replay, all under one systemd service. Open the "AGL LiDAR Demo" tile, or launch it through the shell activator, and the view comes up. To check the pipeline is live on the board:</p>
-<pre><code>ros2 topic hz /carla/detections     <span class="c"># expect ~30 Hz</span>
+  <p>Flash the image, boot, and the backend starts itself: a local rosbridge on port 9090, the <code>lidar_detector</code> node, and the bag replay, all under one systemd service. Open the "AGL LiDAR Demo" tile, or launch it through the shell activator, and the view comes up. To check the pipeline is live on the board:</p>
+  <pre><code>ros2 topic hz /carla/detections     <span class="c"># expect ~30 Hz</span>
 ros2 topic info /carla/detections --verbose   <span class="c"># publisher: lidar_detector, not the bag</span></code></pre>
 
-<h2>The integration problems worth documenting</h2>
-<p>None of these are in the perception algorithm. All of them stopped the demo cold until they were found, and the small, exact fixes for them are the most reusable thing the project produced.</p>
+  <h2 id="challenges"><span class="s">07</span> The integration problems worth documenting</h2>
+  <p class="lead">None of these are in the perception algorithm. All of them stopped the demo cold until they were found, and the small, exact fixes for them are the most reusable thing the project produced.</p>
 
-<h3>rosbag2's Python bindings were built for the wrong architecture</h3>
-<p>On the first on-target boot the backend crash-looped. <code>ros2 bag play</code> died with "No module named 'rosbag2_py._reader'", even though the file was sitting right there. The compiled extensions were correct aarch64 binaries, but meta-ros had named them with the <em>build host</em> SOABI (<code>...x86_64...</code>), so the target Python, which computes an aarch64 SOABI, never matched them on import.</p>
-<p><span class="label fix">fix</span> A bbappend that renames the extensions to the target architecture, keyed on the build and target arch so it is a no-op on native builds. Build-verified. (<a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32178">32178</a>)</p>
+  <h3>rosbag2's Python bindings were built for the wrong architecture</h3>
+  <p>On the first on-target boot the backend crash-looped. <code>ros2 bag play</code> died with "No module named 'rosbag2_py._reader'", even though the file was sitting right there. The compiled extensions were correct aarch64 binaries, but meta-ros had named them with the <em>build host</em> SOABI (<code>...x86_64...</code>), so the target Python, which computes an aarch64 SOABI, never matched them on import.</p>
+  <p><span class="label fix">fix</span> A bbappend that renames the extensions to the target architecture, keyed on the build and target arch so it is a no-op on native builds. Build-verified. (<a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32178">32178</a>)</p>
 
-<h3>An invalid SPDX license stopped the image build at 77 percent</h3>
-<p>Every rosbridge-suite recipe declared <code>LICENSE = "BSD"</code>, which is not a valid SPDX identifier, so AGL's license tooling refused it. Fixing rosbridge-server alone was not enough; the image pulls in six more packages that each trip the same error.</p>
-<p><span class="label fix">fix</span> A valid BSD-3-Clause bbappend for all seven recipes. (<a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32177">32177</a>)</p>
+  <h3>An invalid SPDX license stopped the image build at 77 percent</h3>
+  <p>Every rosbridge-suite recipe declared <code>LICENSE = "BSD"</code>, which is not a valid SPDX identifier, so AGL's license tooling refused it. Fixing rosbridge-server alone was not enough; the image pulls in six more packages that each trip the same error.</p>
+  <p><span class="label fix">fix</span> A valid BSD-3-Clause bbappend for all seven recipes. (<a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32177">32177</a>)</p>
 
-<h3>Layer and packagegroup parse failures blocked the feature</h3>
-<p>A missing trailing backslash in the ROS 2 packagegroup, and a missing <code>meta-python</code> entry in the layer list, each broke parsing for any image enabling the agl-ros2 feature.</p>
-<p><span class="label fix">fix</span> Two small corrections. (<a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32155">32155</a>, <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32156">32156</a>)</p>
+  <h3>Layer and packagegroup parse failures blocked the feature</h3>
+  <p>A missing trailing backslash in the ROS 2 packagegroup, and a missing <code>meta-python</code> entry in the layer list, each broke parsing for any image enabling the agl-ros2 feature.</p>
+  <p><span class="label fix">fix</span> Two small corrections. (<a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32155">32155</a>, <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32156">32156</a>)</p>
 
-<h3>Two board-level surprises in the display stack</h3>
-<p>The compositor's hardware-cursor path aborts on the Tegra DRM driver, so there is no visible pointer on the home screen on this build; you drive the demo through the shell activator instead. And the devkit has no RTC battery and no NTP client, so it boots at the year 1970, which makes the HMI's TLS connection to the data broker fail with "certificate is not yet valid" until the clock is set. That one took a while to see, because nothing in the logs says the clock is wrong, only that the certificate is from the future.</p>
-<p><span class="label note">workaround</span> Drive the app through the shell activator (no cursor needed), and set the clock before the HMI starts. The cursor abort is a candidate upstream issue, and a boot-time clock-sanity service is on the list below.</p>
+  <h3>Two board-level surprises in the display stack</h3>
+  <p>The compositor's hardware-cursor path aborts on the Tegra DRM driver, so there is no visible pointer on the home screen on this build; you drive the demo through the shell activator instead. And the devkit has no RTC battery and no NTP client, so it boots at the year 1970, which makes the HMI's TLS connection to the data broker fail with "certificate is not yet valid" until the clock is set. That one took a while to see, because nothing in the logs says the clock is wrong, only that the certificate is from the future.</p>
+  <p><span class="label note">workaround</span> Drive the app through the shell activator (no cursor needed), and set the clock before the HMI starts. The cursor abort is a candidate upstream issue, and a boot-time clock-sanity service is on the list below.</p>
 
-<div class="callout">
-  <p><strong>The through line.</strong> On a project like this the perception algorithm is the easy part. The clustering and the bounding boxes are a solved problem. The time went into the seams, the places where a generated ROS 2 layer, a vendor board support package, and a Flutter shell are supposed to meet and do not. The most useful thing I shipped was the handful of small fixes that let the next person build the image on the first try.</p>
-</div>
+  <div class="callout">
+    <p><strong>The through line.</strong> On a project like this the perception algorithm is the easy part. The clustering and the bounding boxes are a solved problem. The time went into the seams, the places where a generated ROS 2 layer, a vendor board support package, and a Flutter shell are supposed to meet and do not. The most useful thing I shipped was the handful of small fixes that let the next person build the image on the first try.</p>
+  </div>
 
-<h2>Where it stands, and what is next</h2>
-<ul class="clean">
-  <li><strong>Done:</strong> the HMI app, on-target perception, the offline data pipeline, a full image build and flash to the Orin Nano, and verified live detections at around 30 Hz drawn on the board's own display.</li>
-  <li><strong>In review:</strong> the six open Gerrit changes, the board template and build-unblock in <code>meta-agl</code>, and the four agl-ros2 integration fixes in <code>meta-agl-devel</code>. The last commit of the summer is the rosbag2-py fix, <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32178">32178</a>.</li>
-  <li><strong>Future work:</strong> file the Tegra cursor abort as a compositor issue; add a boot-time clock-sanity service so the 1970 problem never bites again; fold in the drafted HMI (object list, class colours, telemetry strip) on top of the live source; and, given time, extend the detector with tracking so objects keep a stable identity across frames.</li>
-</ul>
+  <h2 id="next"><span class="s">08</span> Current state, and what is next</h2>
+  <ul class="clean">
+    <li><strong>Done:</strong> the HMI app, on-target perception, the offline data pipeline, a full image build and flash to the Orin Nano, and verified live detections at around 30 Hz drawn on the board's own display.</li>
+    <li><strong>In review:</strong> the six open Gerrit changes, the board template and build-unblock in <code>meta-agl</code>, and the four agl-ros2 integration fixes in <code>meta-agl-devel</code>. The last commit of the summer is the rosbag2-py fix, <a href="https://gerrit.automotivelinux.org/gerrit/c/AGL/meta-agl-devel/+/32178">32178</a>.</li>
+    <li><strong>Future work:</strong> file the Tegra cursor abort as a compositor issue; add a boot-time clock-sanity service so the 1970 problem never bites again; fold in the drafted HMI (object list, class colours, telemetry strip) on top of the live source; and, given time, extend the detector with tracking so objects keep a stable identity across frames.</li>
+  </ul>
 
-<h2>Acknowledgements</h2>
-<p>Thank you to my mentors, Jan-Simon Möller, Rob Woolley, and Scott Murray, for the reviews, the hardware guidance, and the patience through the long integration debugging, and to the wider Automotive Grade Linux community for a welcoming, well-run project. Thanks also to Google Summer of Code for the opportunity.</p>
+  <h2 id="thanks">Acknowledgements</h2>
+  <p>Thank you to my mentors, Jan-Simon Möller, Rob Woolley, and Scott Murray, for the reviews, the hardware guidance, and the patience through the long integration debugging, and to the wider Automotive Grade Linux community for a welcoming, well-run project. Thanks also to Google Summer of Code for the opportunity.</p>
 
-<div class="pager">
-  <a href="week22.html">&larr; Week 22</a>
-  <div class="spacer"></div>
-  <a href="index.html">Home &rarr;</a>
-</div>
+  <div class="pager">
+    <a href="week22.html">&larr; Week 22</a>
+    <div class="spacer"></div>
+    <a href="index.html">Home &rarr;</a>
+  </div>
 
-<div class="footer">
-  <p>GSoC 2026 · Automotive Grade Linux · "ROS-Embedded LiDAR Perception in CARLA with AGL Visualization"</p>
-</div>
+  <div class="footer">
+    <p>GSoC 2026 · Automotive Grade Linux · "ROS-Embedded LiDAR Perception in CARLA with AGL Visualization"</p>
+  </div>
+
 </div>
 </body>
 </html>
