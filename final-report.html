@@ -190,6 +190,10 @@ Flutter HMI (agl_lidar_demo) top-down cloud + boxes + front & aerial cameras</di
     <img class="portrait" src="week22-jetson.jpg" alt="The Jetson Orin Nano developer kit on the bench, wired with a recovery jumper, USB-C to the laptop, and power, ready to flash">
     <figcaption><strong>The hardware.</strong> The Jetson Orin Nano developer kit on the bench during bring-up. The full <code>agl-ivi-demo-flutter</code> image builds from AGL's own tree, flashes to this board, and boots into the demo with the detector running on the device.</figcaption>
   </figure>
+  <figure class="shot">
+    <img class="portrait" src="jetson-hardware.gif" alt="The AGL LiDAR demo running live on the Jetson Orin Nano's portrait display, recorded on the bench">
+    <figcaption><strong>Running on the board.</strong> The HMI live on the Jetson's own display: the point cloud, the radar sweep, and the green detection boxes, recorded on the bench.</figcaption>
+  </figure>
   <p>Getting there was the usual embedded gap between a clean build and a clean first boot. The image built and flashed on the first proper attempt, but the backend crash-looped on boot, the SPDX license step had already stopped an earlier build dead at 77 percent, and the board's display and clock both needed attention before the dashboard would come up. Those are the problems worth documenting, in section 07.</p>
 
   <h2 id="deliverables"><span class="s">04</span> What was built, by component</h2>
