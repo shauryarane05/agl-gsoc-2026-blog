@@ -176,16 +176,18 @@ Flutter HMI (agl_lidar_demo) top-down cloud + boxes + front & aerial cameras</di
 
   <h2 id="hardware"><span class="s">03</span> Verified on the Jetson</h2>
   <p class="lead">The screenshots below are captured from the Jetson's own display while the pipeline runs on the board. The badges (points, objects, hertz, LIVE) are driven by the on-target detector, frame by frame.</p>
-  <div class="rfigs">
-    <figure class="shot">
-      <img src="hmi-pointcloud.png" alt="The AGL LiDAR HMI on the Jetson: a top-down point cloud with green detection boxes and the front and aerial camera feeds">
-      <figcaption><strong>Live on the board.</strong> 694 points, 7 objects at 28 Hz, with the forward and aerial CARLA camera feeds.</figcaption>
-    </figure>
-    <figure class="shot">
-      <img src="hmi-detections.png" alt="A second frame of the AGL LiDAR HMI with detection boxes on clustered returns near the ego vehicle">
-      <figcaption><strong>Detections on clustered returns.</strong> The green boxes are computed on the target from the raw cloud, not replayed.</figcaption>
-    </figure>
-  </div>
+  <figure class="shot">
+    <img src="app-running.gif" alt="The AGL LiDAR HMI running live on the Jetson: point cloud, rotating radar sweep, and green detection boxes updating in real time, with the forward and aerial camera feeds">
+    <figcaption><strong>The HMI running on the board.</strong> A live capture from the Jetson: the point cloud, the radar sweep, and the green detection boxes update in real time as the on-target detector runs, alongside the forward and aerial camera feeds.</figcaption>
+  </figure>
+  <figure class="shot">
+    <img src="hmi-pointcloud.png" alt="The AGL LiDAR HMI on the Jetson: a top-down point cloud with green detection boxes and the front and aerial camera feeds">
+    <figcaption><strong>Live on the board.</strong> 694 points, 7 objects at 28 Hz, with the forward and aerial CARLA camera feeds.</figcaption>
+  </figure>
+  <figure class="shot">
+    <img src="hmi-detections.png" alt="A second frame of the AGL LiDAR HMI with detection boxes on clustered returns near the ego vehicle">
+    <figcaption><strong>Detections on clustered returns.</strong> The green boxes are computed on the target from the raw cloud, not replayed.</figcaption>
+  </figure>
   <figure class="shot">
     <img class="portrait" src="week22-jetson.jpg" alt="The Jetson Orin Nano developer kit on the bench, wired with a recovery jumper, USB-C to the laptop, and power, ready to flash">
     <figcaption><strong>The hardware.</strong> The Jetson Orin Nano developer kit on the bench during bring-up. The full <code>agl-ivi-demo-flutter</code> image builds from AGL's own tree, flashes to this board, and boots into the demo with the detector running on the device.</figcaption>
